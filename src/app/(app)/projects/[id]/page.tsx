@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import { asc, desc, eq, sql } from "drizzle-orm";
-import { CalendarClock, MapPin, User2, AlertTriangle } from "lucide-react";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { CalendarClock, MapPin, User2, AlertTriangle, Trash2 } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -21,17 +21,29 @@ import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { ProgressMeter, CoverageBar } from "@/components/app/meters";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
+import { AttachmentsPanel } from "@/components/app/attachments-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AddTaskDialog,
   UpdateTaskDialog,
   AddMilestoneDialog,
+  EditMilestoneDialog,
   AddWbsDialog,
+  EditWbsDialog,
   AddChangeOrderDialog,
   RaiseRequirementDialog,
+  EditRequirementDialog,
   ProjectStatusControl,
+  EditProjectDialog,
 } from "../dialogs";
-import { reachMilestone, submitChangeOrder } from "../actions";
+import { cancelRequirement } from "../../requirements/actions";
+import {
+  reachMilestone,
+  submitChangeOrder,
+  deleteTask,
+  deleteMilestone,
+  deleteWbsCode,
+} from "../actions";
 
 export default async function ProjectDetailPage({
   params,
@@ -65,6 +77,8 @@ export default async function ProjectDetailPage({
         dueDate: t.tasks.dueDate,
         isBlocked: t.tasks.isBlocked,
         wbsId: t.tasks.wbsId,
+        assigneeId: t.tasks.assigneeId,
+        weight: t.tasks.weight,
         assigneeName: t.users.fullName,
       })
       .from(t.tasks)
@@ -105,14 +119,19 @@ export default async function ProjectDetailPage({
       .from(t.users)
       .where(eq(t.users.isActive, true));
 
+    const [billedRow] = await tx
+      .select({ b: sql<string>`coalesce(sum(${t.invoices.totalAmount}), 0)` })
+      .from(t.invoices)
+      .where(and(eq(t.invoices.projectId, id), ne(t.invoices.status, "void")));
+
     const coverage = await getRequirementCoverage(tx, id);
     const cost = await getProjectCost(tx, id);
 
-    return { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost };
+    return { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed: num(billedRow?.b) };
   });
 
   if (!result) notFound();
-  const { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost } = result;
+  const { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed } = result;
 
   const canManage = can(user.role, "projects.manage");
   const canSchedule = can(user.role, "schedule.manage");
@@ -134,10 +153,14 @@ export default async function ProjectDetailPage({
   }
 
   const blockedCount = tasks.filter((tk) => tk.isBlocked).length;
+  const contractValue = num(project.contractValue);
+  const margin = contractValue - cost.forecast;
+  const billedRemaining = contractValue - billed;
 
   return (
     <div>
       <PageHeader
+        eyebrow="Project"
         title={project.name}
         description={
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -160,7 +183,21 @@ export default async function ProjectDetailPage({
         }
         actions={
           canManage ? (
-            <ProjectStatusControl projectId={project.id} status={project.status} />
+            <div className="flex items-center gap-2">
+              <EditProjectDialog
+                project={{
+                  id: project.id,
+                  name: project.name,
+                  clientName: project.clientName,
+                  location: project.location,
+                  contractValue: project.contractValue,
+                  startDate: project.startDate,
+                  endDate: project.endDate,
+                  description: project.description,
+                }}
+              />
+              <ProjectStatusControl projectId={project.id} status={project.status} />
+            </div>
           ) : (
             <StatusPill status={project.status} tones={PROJECT_STATUS_TONE} />
           )
@@ -182,10 +219,48 @@ export default async function ProjectDetailPage({
           label="Forecast"
           value={formatMoney(cost.forecast, "AED", { compact: true })}
           tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
-          sub={`${cost.variance >= 0 ? "+" : ""}${formatMoney(cost.variance, "AED", { compact: true })} vs budget`}
+          sub={
+            cost.variance > 0
+              ? `+${formatMoney(cost.variance, "AED", { compact: true })} over budget`
+              : "on budget"
+          }
         />
         <StatCard label="Progress" value={`${Math.round(num(project.progress))}%`} tone="info" />
       </div>
+
+      <SectionCard title="Commercial summary" className="mb-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+          <div>
+            <p className="eyebrow text-muted-foreground">Contract value</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(contractValue)}</p>
+          </div>
+          <div>
+            <p className="eyebrow text-muted-foreground">Forecast cost</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(cost.forecast)}</p>
+          </div>
+          <div>
+            <p className="eyebrow text-muted-foreground">Forecast margin</p>
+            <p className={`font-display text-lg font-semibold tabular ${margin < 0 ? "text-critical" : "text-good"}`}>
+              {formatMoney(margin)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {contractValue > 0 ? `${Math.round((margin / contractValue) * 100)}% of contract` : "no contract set"}
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow text-muted-foreground">Billed to date</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(billed)}</p>
+            <p className="text-xs text-muted-foreground">
+              {contractValue > 0
+                ? `${formatMoney(billedRemaining, "AED", { compact: true })} left to bill`
+                : "—"}
+            </p>
+          </div>
+        </div>
+        {project.description && (
+          <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">{project.description}</p>
+        )}
+      </SectionCard>
 
       <Tabs defaultValue="schedule">
         <TabsList>
@@ -214,10 +289,11 @@ export default async function ProjectDetailPage({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">Task</th>
                       <th className="px-4 py-2.5 font-medium">Status</th>
                       <th className="px-4 py-2.5 font-medium w-36">Progress</th>
+                      <th className="px-4 py-2.5 font-medium">Start</th>
                       <th className="px-4 py-2.5 font-medium">Due</th>
                       <th className="px-4 py-2.5 font-medium">Assignee</th>
                       {canSchedule && <th className="px-4 py-2.5" />}
@@ -243,13 +319,31 @@ export default async function ProjectDetailPage({
                           <td className="px-4 py-2.5">
                             <ProgressMeter value={num(tk.progress)} tone={tk.isBlocked ? "critical" : "info"} />
                           </td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{formatDate(tk.startDate)}</td>
                           <td className={`px-4 py-2.5 ${overdue ? "text-critical" : ""}`}>
                             {formatDate(tk.dueDate)}
                           </td>
                           <td className="px-4 py-2.5 text-muted-foreground">{tk.assigneeName ?? "—"}</td>
                           {canSchedule && (
-                            <td className="px-4 py-2.5 text-right">
-                              <UpdateTaskDialog task={tk} projectId={project.id} />
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center justify-end gap-1">
+                                <UpdateTaskDialog
+                                  task={tk}
+                                  projectId={project.id}
+                                  wbsOptions={wbsOptions}
+                                  memberOptions={memberOptions}
+                                />
+                                <ActionButton
+                                  action={deleteTask}
+                                  fields={{ taskId: tk.id, projectId: project.id }}
+                                  confirm={`Delete task "${tk.name}"?`}
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Delete task ${tk.name}`}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </ActionButton>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -273,39 +367,71 @@ export default async function ProjectDetailPage({
               </div>
             ) : (
               <div className="divide-y">
-                {milestones.map((ms) => (
-                  <div key={ms.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium">{ms.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Due {formatDate(ms.dueDate)} · {formatMoney(ms.billingAmount)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge
-                        tone={
-                          ms.status === "reached" || ms.status === "invoiced"
-                            ? "good"
-                            : ms.status === "missed"
-                              ? "critical"
-                              : "neutral"
-                        }
-                      >
-                        {ms.status}
-                      </StatusBadge>
-                      {canSchedule && ms.status === "pending" && (
-                        <ActionButton
-                          action={reachMilestone}
-                          fields={{ milestoneId: ms.id, projectId: project.id }}
-                          variant="outline"
-                          size="xs"
+                {milestones.map((ms) => {
+                  const overdueMs =
+                    ms.status === "pending" &&
+                    (() => {
+                      const d = daysUntil(ms.dueDate);
+                      return d !== null && d < 0;
+                    })();
+                  const displayStatus = overdueMs ? "missed" : ms.status;
+                  return (
+                    <div key={ms.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-medium">{ms.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Due {formatDate(ms.dueDate)} · {formatMoney(ms.billingAmount)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge
+                          tone={
+                            displayStatus === "reached" || displayStatus === "invoiced"
+                              ? "good"
+                              : displayStatus === "missed"
+                                ? "critical"
+                                : "neutral"
+                          }
                         >
-                          Mark reached
-                        </ActionButton>
-                      )}
+                          {displayStatus}
+                        </StatusBadge>
+                        {canSchedule && ms.status === "pending" && (
+                          <ActionButton
+                            action={reachMilestone}
+                            fields={{ milestoneId: ms.id, projectId: project.id }}
+                            variant="outline"
+                            size="xs"
+                          >
+                            Mark reached
+                          </ActionButton>
+                        )}
+                        {canSchedule && ms.status !== "invoiced" && (
+                          <>
+                            <EditMilestoneDialog
+                              projectId={project.id}
+                              milestone={{
+                                id: ms.id,
+                                name: ms.name,
+                                dueDate: ms.dueDate,
+                                billingAmount: ms.billingAmount,
+                              }}
+                            />
+                            <ActionButton
+                              action={deleteMilestone}
+                              fields={{ milestoneId: ms.id, projectId: project.id }}
+                              confirm={`Delete milestone "${ms.name}"?`}
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Delete milestone ${ms.name}`}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </ActionButton>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </SectionCard>
@@ -321,19 +447,21 @@ export default async function ProjectDetailPage({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
+                  <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                     <th className="px-4 py-2.5 font-medium">Code</th>
                     <th className="px-4 py-2.5 font-medium">Description</th>
                     <th className="px-4 py-2.5 text-right font-medium">Budget</th>
                     <th className="px-4 py-2.5 text-right font-medium">Committed</th>
                     <th className="px-4 py-2.5 text-right font-medium">Actual</th>
                     <th className="px-4 py-2.5 text-right font-medium">Remaining</th>
+                    {canManage && <th className="px-4 py-2.5" />}
                   </tr>
                 </thead>
                 <tbody>
                   {wbs.map((w) => {
                     const c = wbsCostMap.get(w.id) ?? { committed: 0, actual: 0 };
                     const remaining = num(w.budget) - c.committed - c.actual;
+                    const hasCost = c.committed !== 0 || c.actual !== 0;
                     return (
                       <tr key={w.id} className="border-b last:border-0">
                         <td className="px-4 py-2.5 font-medium">{w.code}</td>
@@ -344,6 +472,28 @@ export default async function ProjectDetailPage({
                         <td className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : "text-muted-foreground"}`}>
                           {formatMoney(remaining)}
                         </td>
+                        {canManage && (
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-1">
+                              <EditWbsDialog
+                                projectId={project.id}
+                                wbs={{ id: w.id, code: w.code, name: w.name, budget: w.budget }}
+                              />
+                              {!hasCost && (
+                                <ActionButton
+                                  action={deleteWbsCode}
+                                  fields={{ wbsId: w.id, projectId: project.id }}
+                                  confirm={`Delete cost code ${w.code}?`}
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Delete cost code ${w.code}`}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </ActionButton>
+                              )}
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -373,6 +523,9 @@ export default async function ProjectDetailPage({
               <div className="divide-y">
                 {requirements.map((r) => {
                   const cov = coverage.get(r.id);
+                  const estValue = num(r.quantity) * num(r.estimatedUnitCost);
+                  const canEditReq =
+                    canReq && r.status !== "cancelled" && r.status !== "fulfilled";
                   return (
                     <div key={r.id} className="px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
@@ -380,15 +533,54 @@ export default async function ProjectDetailPage({
                           <p className="text-sm font-medium">{r.itemName}</p>
                           <p className="text-xs text-muted-foreground">
                             {num(r.quantity)} {r.unit} · needed {formatDate(r.neededBy)}
+                            {estValue > 0 && <> · est {formatMoney(estValue)}</>}
                           </p>
                         </div>
-                        <StatusPill status={r.status} tones={REQUIREMENT_STATUS_TONE} />
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <StatusPill status={r.status} tones={REQUIREMENT_STATUS_TONE} />
+                          {canEditReq && (
+                            <>
+                              <EditRequirementDialog
+                                projectId={project.id}
+                                taskOptions={taskOptions}
+                                wbsOptions={wbsOptions}
+                                requirement={{
+                                  id: r.id,
+                                  itemName: r.itemName,
+                                  unit: r.unit,
+                                  quantity: r.quantity,
+                                  estimatedUnitCost: r.estimatedUnitCost,
+                                  neededBy: r.neededBy,
+                                  taskId: r.taskId,
+                                  wbsId: r.wbsId,
+                                  description: r.description,
+                                }}
+                              />
+                              <ActionButton
+                                action={cancelRequirement}
+                                fields={{ requirementId: r.id }}
+                                confirm={`Cancel requirement "${r.itemName}"?`}
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Cancel requirement ${r.itemName}`}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </ActionButton>
+                            </>
+                          )}
+                        </div>
                       </div>
                       {cov && (
                         <div className="mt-2 space-y-1">
-                          <CoverageBar required={cov.required} allocated={cov.allocated} inbound={cov.inbound} />
+                          <CoverageBar
+                            required={cov.required}
+                            allocated={cov.allocated}
+                            received={cov.received}
+                            inbound={cov.inbound}
+                          />
                           <div className="flex flex-wrap gap-x-4 text-xs text-muted-foreground">
                             <span>Allocated {cov.allocated}</span>
+                            <span>Received {cov.received}</span>
                             <span>Inbound {cov.inbound}</span>
                             {cov.shortage > 0 ? (
                               <span className="text-critical">Shortage {cov.shortage}</span>
@@ -421,7 +613,7 @@ export default async function ProjectDetailPage({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">CO</th>
                       <th className="px-4 py-2.5 font-medium">Title</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cost</th>
@@ -465,6 +657,10 @@ export default async function ProjectDetailPage({
           </SectionCard>
         </TabsContent>
       </Tabs>
+
+      <div className="mt-4">
+        <AttachmentsPanel entityType="project" entityId={project.id} />
+      </div>
     </div>
   );
 }

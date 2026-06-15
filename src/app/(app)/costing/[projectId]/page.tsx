@@ -14,14 +14,15 @@ import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
+import { ActionButton } from "@/components/app/action-button";
 import { Button } from "@/components/ui/button";
 import { PostCostDialog } from "../dialogs";
+import { reverseCostPosting } from "../actions";
 
 const COST_TYPE_TONE: Record<string, BadgeTone> = {
   budget: "neutral",
   commitment: "info",
   actual: "warning",
-  forecast: "neutral",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -88,11 +89,13 @@ export default async function JobCostingDetailPage({
   const wbsCostMap = new Map<string, { committed: number; actual: number; budget: number }>();
   let unassignedCommitted = 0;
   let unassignedActual = 0;
+  let unassignedBudget = 0;
   for (const p of postings) {
     const amt = num(p.amount);
     if (!p.wbsId) {
       if (p.type === "commitment") unassignedCommitted += amt;
       if (p.type === "actual") unassignedActual += amt;
+      if (p.type === "budget") unassignedBudget += amt;
       continue;
     }
     const cur = wbsCostMap.get(p.wbsId) ?? { committed: 0, actual: 0, budget: 0 };
@@ -101,7 +104,8 @@ export default async function JobCostingDetailPage({
     if (p.type === "budget") cur.budget += amt;
     wbsCostMap.set(p.wbsId, cur);
   }
-  const hasUnassigned = unassignedCommitted !== 0 || unassignedActual !== 0;
+  const hasUnassigned =
+    unassignedCommitted !== 0 || unassignedActual !== 0 || unassignedBudget !== 0;
 
   return (
     <div>
@@ -112,6 +116,7 @@ export default async function JobCostingDetailPage({
       </div>
 
       <PageHeader
+        eyebrow="Job ledger"
         title={project.name}
         description={
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -128,7 +133,7 @@ export default async function JobCostingDetailPage({
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard label="Budget" value={formatMoney(cost.budget, "AED", { compact: true })} />
         <StatCard
           label="Committed"
@@ -137,10 +142,19 @@ export default async function JobCostingDetailPage({
         />
         <StatCard label="Actual" value={formatMoney(cost.actual, "AED", { compact: true })} />
         <StatCard
+          label="Incurred"
+          value={formatMoney(cost.incurred, "AED", { compact: true })}
+          sub="actual + on order"
+        />
+        <StatCard
           label="Forecast"
           value={formatMoney(cost.forecast, "AED", { compact: true })}
           tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
-          sub={`${cost.variance >= 0 ? "+" : ""}${formatMoney(cost.variance, "AED", { compact: true })} vs budget`}
+          sub={
+            cost.variance > 0
+              ? `+${formatMoney(cost.variance, "AED", { compact: true })} over budget`
+              : "on budget"
+          }
         />
         <StatCard
           label="Margin"
@@ -164,7 +178,7 @@ export default async function JobCostingDetailPage({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
+                  <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                     <th className="px-4 py-2.5 font-medium">Code</th>
                     <th className="px-4 py-2.5 font-medium">Description</th>
                     <th className="px-4 py-2.5 text-right font-medium">Budget</th>
@@ -193,18 +207,21 @@ export default async function JobCostingDetailPage({
                       </tr>
                     );
                   })}
-                  {hasUnassigned && (
-                    <tr className="border-b last:border-0 text-muted-foreground">
-                      <td className="px-4 py-2.5 font-medium">—</td>
-                      <td className="px-4 py-2.5 italic">Unassigned (no cost code)</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(0)}</td>
-                      <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(unassignedCommitted)}</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedActual)}</td>
-                      <td className="px-4 py-2.5 text-right tabular text-critical">
-                        {formatMoney(-(unassignedCommitted + unassignedActual))}
-                      </td>
-                    </tr>
-                  )}
+                  {hasUnassigned && (() => {
+                    const remaining = unassignedBudget - unassignedCommitted - unassignedActual;
+                    return (
+                      <tr className="border-b last:border-0 text-muted-foreground">
+                        <td className="px-4 py-2.5 font-medium">—</td>
+                        <td className="px-4 py-2.5 italic">Unassigned / project level</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedBudget)}</td>
+                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(unassignedCommitted)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedActual)}</td>
+                        <td className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : ""}`}>
+                          {formatMoney(remaining)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -227,19 +244,23 @@ export default async function JobCostingDetailPage({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
+                  <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                     <th className="px-4 py-2.5 font-medium">Date</th>
                     <th className="px-4 py-2.5 font-medium">Type</th>
                     <th className="px-4 py-2.5 font-medium">Description</th>
                     <th className="px-4 py-2.5 font-medium">Cost code</th>
                     <th className="px-4 py-2.5 font-medium">Source</th>
                     <th className="px-4 py-2.5 text-right font-medium">Amount</th>
+                    {canPost && <th className="px-4 py-2.5" />}
                   </tr>
                 </thead>
                 <tbody>
                   {postings.map((p) => {
                     const w = p.wbsId ? wbsById.get(p.wbsId) : null;
                     const amt = num(p.amount);
+                    const canReverse =
+                      p.sourceType === "manual" &&
+                      !(p.description ?? "").startsWith("Reversal of");
                     return (
                       <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
                         <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
@@ -270,6 +291,21 @@ export default async function JobCostingDetailPage({
                           {amt < 0 ? "" : "+"}
                           {formatMoney(amt)}
                         </td>
+                        {canPost && (
+                          <td className="px-4 py-2.5 text-right">
+                            {canReverse && (
+                              <ActionButton
+                                action={reverseCostPosting}
+                                fields={{ postingId: p.id, projectId: project.id }}
+                                confirm="Reverse this manual posting? An offsetting entry will be added."
+                                variant="ghost"
+                                size="xs"
+                              >
+                                Reverse
+                              </ActionButton>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

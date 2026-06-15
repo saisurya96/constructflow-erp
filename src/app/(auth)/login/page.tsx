@@ -16,8 +16,11 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+      <div className="space-y-1.5">
+        <span className="eyebrow block text-muted-foreground">Sign in</span>
+        <h1 className="font-display text-[1.7rem] font-semibold tracking-tight">
+          Welcome back
+        </h1>
         <p className="text-sm text-muted-foreground">
           Sign in to your ConstructFlow workspace.
         </p>
@@ -56,8 +59,8 @@ export default function LoginPage() {
       </form>
 
       <div className="rounded-lg border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">
-          Demo accounts (password: {DEMO_PASSWORD})
+        <p className="eyebrow mb-2 text-muted-foreground">
+          Demo accounts · {DEMO_PASSWORD}
         </p>
         <div className="flex flex-wrap gap-1.5">
           {DEMO_ACCOUNTS.map((a) => (

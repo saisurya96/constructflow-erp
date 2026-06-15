@@ -28,7 +28,8 @@ export default async function RfqsPage() {
       })
       .from(t.rfqs)
       .leftJoin(t.projects, eq(t.projects.id, t.rfqs.projectId))
-      .orderBy(desc(t.rfqs.createdAt));
+      .orderBy(desc(t.rfqs.createdAt))
+      .limit(200);
 
     const invited = await tx
       .select({
@@ -61,6 +62,7 @@ export default async function RfqsPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Sourcing · RFQ"
         title="RFQs & sourcing"
         description="Send requests for quotation, compare vendor bids and award the winner."
         actions={
@@ -99,7 +101,7 @@ export default async function RfqsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">RFQ</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 font-medium">Due</th>

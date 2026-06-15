@@ -80,6 +80,7 @@ export default async function NewRfqPage({
   return (
     <div>
       <PageHeader
+        eyebrow="Request for quote"
         title="New RFQ"
         description={
           data.requirement

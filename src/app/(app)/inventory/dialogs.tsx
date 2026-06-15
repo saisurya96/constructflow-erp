@@ -1,13 +1,19 @@
 "use client";
 
-import { Plus, Warehouse, SlidersHorizontal, Split } from "lucide-react";
+import { Warehouse, SlidersHorizontal, Split, Pencil, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, NativeSelect } from "@/components/app/field";
 import { UNITS } from "@/lib/constants";
-import { createWarehouse, adjustStock, reserveAllocation } from "./actions";
+import {
+  createWarehouse,
+  updateWarehouse,
+  adjustStock,
+  reserveAllocation,
+  setReorderPoint,
+} from "./actions";
 
 type Option = { id: string; label: string };
 
@@ -44,6 +50,95 @@ export function AddWarehouseDialog({ projectOptions }: { projectOptions: Option[
           </Field>
           <Field label="Address" htmlFor="address">
             <Textarea id="address" name="address" rows={2} />
+          </Field>
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function EditWarehouseDialog({
+  warehouse,
+  projectOptions,
+}: {
+  warehouse: { id: string; name: string; code: string | null; projectId: string | null; address: string | null };
+  projectOptions: Option[];
+}) {
+  return (
+    <FormDialog
+      title="Edit warehouse"
+      action={updateWarehouse}
+      submitLabel="Save"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="warehouseId" value={warehouse.id} />
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Name" htmlFor="name" required error={errors.name} className="col-span-2">
+              <Input id="name" name="name" required defaultValue={warehouse.name} />
+            </Field>
+            <Field label="Code" htmlFor="code" error={errors.code}>
+              <Input id="code" name="code" defaultValue={warehouse.code ?? ""} />
+            </Field>
+          </div>
+          <Field label="Project (optional)" htmlFor="projectId">
+            <NativeSelect id="projectId" name="projectId" defaultValue={warehouse.projectId ?? ""}>
+              <option value="">— central / shared —</option>
+              {projectOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Address" htmlFor="address">
+            <Textarea id="address" name="address" rows={2} defaultValue={warehouse.address ?? ""} />
+          </Field>
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function SetReorderDialog({
+  itemId,
+  itemName,
+  unit,
+  current,
+}: {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  current: number;
+}) {
+  return (
+    <FormDialog
+      title={`Reorder point — ${itemName}`}
+      description="Stock at or below this available quantity is flagged as low. Set 0 to disable the alert."
+      action={setReorderPoint}
+      submitLabel="Save"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Bell className="size-3.5" /> {current > 0 ? "Edit" : "Set"}
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="itemId" value={itemId} />
+          <Field label={`Reorder point (${unit})`} htmlFor="reorderPoint" required error={errors.reorderPoint}>
+            <Input
+              id="reorderPoint"
+              name="reorderPoint"
+              type="number"
+              step="0.001"
+              min="0"
+              defaultValue={String(current)}
+              required
+            />
           </Field>
         </>
       )}

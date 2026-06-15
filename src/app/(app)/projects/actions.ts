@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import type { Tx } from "@/db/client";
@@ -15,6 +15,7 @@ import {
   ok,
   fail,
   zMoney,
+  zSignedMoney,
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
@@ -93,12 +94,61 @@ export async function createProject(
   });
 }
 
+const PROJECT_STATUSES = [
+  "planning",
+  "active",
+  "on_hold",
+  "completed",
+  "archived",
+] as const;
+
+export async function updateProject(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const projectId = String(formData.get("projectId") ?? "");
+  const parsed = parseForm(projectSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    const [proj] = await tx
+      .update(t.projects)
+      .set({
+        name: d.name,
+        clientName: d.clientName ?? null,
+        location: d.location ?? null,
+        budget: money(d.budget),
+        contractValue: money(d.contractValue),
+        startDate: d.startDate ?? null,
+        endDate: d.endDate ?? null,
+        description: d.description ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(t.projects.id, projectId))
+      .returning();
+    if (!proj) return fail("Project not found");
+    await audit(tx, ctx, {
+      action: "project.update",
+      entityType: "project",
+      entityId: projectId,
+      summary: `Updated project details for ${proj.name}`,
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/projects");
+    return ok("Project updated");
+  });
+}
+
 export async function updateProjectStatus(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   const projectId = String(formData.get("projectId") ?? "");
-  const status = String(formData.get("status") ?? "") as t.Project["status"];
+  const statusParse = z.enum(PROJECT_STATUSES).safeParse(formData.get("status"));
+  if (!statusParse.success) return fail("Invalid status");
+  const status = statusParse.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
     await tx.update(t.projects).set({ status, updatedAt: new Date() }).where(eq(t.projects.id, projectId));
@@ -151,6 +201,70 @@ export async function createWbsCode(
   });
 }
 
+const wbsUpdateSchema = wbsSchema.extend({ wbsId: z.string().uuid() });
+
+export async function updateWbsCode(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(wbsUpdateSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    const [updated] = await tx
+      .update(t.wbsCodes)
+      .set({ code: d.code, name: d.name, budget: money(d.budget) })
+      .where(eq(t.wbsCodes.id, d.wbsId))
+      .returning();
+    if (!updated) return fail("Cost code not found");
+    await audit(tx, ctx, {
+      action: "wbs.update",
+      entityType: "wbs",
+      entityId: d.wbsId,
+      summary: `Updated cost code ${d.code} — ${d.name} (budget ${money(d.budget)})`,
+      projectId: d.projectId,
+    });
+    revalidatePath(`/projects/${d.projectId}`);
+    revalidatePath(`/costing/${d.projectId}`);
+    return ok("Cost code updated");
+  });
+}
+
+export async function deleteWbsCode(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const wbsId = String(formData.get("wbsId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    // Block deletion once the code carries any cost (commitment/actual/budget
+    // postings) — removing it would silently drop money from the job ledger.
+    const [posting] = await tx
+      .select({ n: sql<number>`count(*)` })
+      .from(t.costPostings)
+      .where(and(eq(t.costPostings.wbsId, wbsId), eq(t.costPostings.projectId, projectId)));
+    if (posting && Number(posting.n) > 0)
+      return fail("This cost code already has postings and can't be deleted. Set its budget to 0 instead.");
+    const [wbs] = await tx
+      .delete(t.wbsCodes)
+      .where(eq(t.wbsCodes.id, wbsId))
+      .returning();
+    if (!wbs) return fail("Cost code not found");
+    await audit(tx, ctx, {
+      action: "wbs.delete",
+      entityType: "wbs",
+      entityId: wbsId,
+      summary: `Deleted cost code ${wbs.code} — ${wbs.name}`,
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath(`/costing/${projectId}`);
+    return ok("Cost code deleted");
+  });
+}
+
 /* ───────────────────────────── schedule ────────────────────────────── */
 
 const taskSchema = z.object({
@@ -192,38 +306,84 @@ export async function createTask(
   });
 }
 
+const taskUpdateSchema = z.object({
+  taskId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  name: z.string().min(2, "Task name is required"),
+  status: z.enum(["not_started", "in_progress", "blocked", "done"]),
+  progress: z.coerce.number().default(0),
+  wbsId: z.string().uuid().optional(),
+  assigneeId: z.string().uuid().optional(),
+  startDate: zOptionalDate,
+  dueDate: zOptionalDate,
+  weight: z.coerce.number().positive().default(1),
+});
+
 export async function updateTask(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const taskId = String(formData.get("taskId") ?? "");
-  const projectId = String(formData.get("projectId") ?? "");
-  const status = String(formData.get("status") ?? "") as t.Task["status"];
-  let progress = num(String(formData.get("progress") ?? "0"));
-  if (status === "done") progress = 100;
-  if (status === "not_started") progress = Math.min(progress, 0);
+  const parsed = parseForm(taskUpdateSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  let progress = d.progress;
+  if (d.status === "done") progress = 100;
+  else if (d.status === "not_started") progress = 0;
+  else progress = Math.max(0, Math.min(100, progress));
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
     await tx
       .update(t.tasks)
       .set({
-        status,
+        name: d.name,
+        status: d.status,
         progress: pct(progress),
-        isBlocked: status === "blocked",
+        wbsId: d.wbsId ?? null,
+        assigneeId: d.assigneeId ?? null,
+        startDate: d.startDate ?? null,
+        dueDate: d.dueDate ?? null,
+        weight: pct(d.weight),
+        isBlocked: d.status === "blocked",
         updatedAt: new Date(),
       })
-      .where(eq(t.tasks.id, taskId));
-    await recomputeProjectProgress(tx, projectId);
+      .where(eq(t.tasks.id, d.taskId));
+    await recomputeProjectProgress(tx, d.projectId);
     await audit(tx, ctx, {
       action: "task.update",
       entityType: "task",
+      entityId: d.taskId,
+      summary: `Updated task "${d.name}" to ${d.status} (${Math.round(progress)}%)`,
+      risk: d.status === "blocked" ? "warning" : "neutral",
+      projectId: d.projectId,
+    });
+    revalidatePath(`/projects/${d.projectId}`);
+    return ok("Task updated");
+  });
+}
+
+export async function deleteTask(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const taskId = String(formData.get("taskId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const [task] = await tx
+      .delete(t.tasks)
+      .where(eq(t.tasks.id, taskId))
+      .returning();
+    if (!task) return fail("Task not found");
+    await recomputeProjectProgress(tx, projectId);
+    await audit(tx, ctx, {
+      action: "task.delete",
+      entityType: "task",
       entityId: taskId,
-      summary: `Updated task to ${status} (${Math.round(progress)}%)`,
-      risk: status === "blocked" ? "warning" : "neutral",
+      summary: `Deleted task: ${task.name}`,
       projectId,
     });
     revalidatePath(`/projects/${projectId}`);
-    return ok("Task updated");
+    return ok("Task deleted");
   });
 }
 
@@ -286,14 +446,83 @@ export async function reachMilestone(
   });
 }
 
+const milestoneUpdateSchema = milestoneSchema.extend({ milestoneId: z.string().uuid() });
+
+export async function updateMilestone(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(milestoneUpdateSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const [existing] = await tx
+      .select({ status: t.milestones.status })
+      .from(t.milestones)
+      .where(eq(t.milestones.id, d.milestoneId))
+      .limit(1);
+    if (!existing) return fail("Milestone not found");
+    if (existing.status === "invoiced")
+      return fail("This milestone has been invoiced and can no longer be edited");
+    await tx
+      .update(t.milestones)
+      .set({
+        name: d.name,
+        dueDate: d.dueDate ?? null,
+        billingAmount: money(d.billingAmount),
+        updatedAt: new Date(),
+      })
+      .where(eq(t.milestones.id, d.milestoneId));
+    await audit(tx, ctx, {
+      action: "milestone.update",
+      entityType: "milestone",
+      entityId: d.milestoneId,
+      summary: `Updated milestone: ${d.name}`,
+      projectId: d.projectId,
+    });
+    revalidatePath(`/projects/${d.projectId}`);
+    return ok("Milestone updated");
+  });
+}
+
+export async function deleteMilestone(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const milestoneId = String(formData.get("milestoneId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const [existing] = await tx
+      .select({ status: t.milestones.status, name: t.milestones.name })
+      .from(t.milestones)
+      .where(eq(t.milestones.id, milestoneId))
+      .limit(1);
+    if (!existing) return fail("Milestone not found");
+    if (existing.status === "invoiced")
+      return fail("This milestone has been invoiced and can no longer be deleted");
+    await tx.delete(t.milestones).where(eq(t.milestones.id, milestoneId));
+    await audit(tx, ctx, {
+      action: "milestone.delete",
+      entityType: "milestone",
+      entityId: milestoneId,
+      summary: `Deleted milestone: ${existing.name}`,
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return ok("Milestone deleted");
+  });
+}
+
 /* ─────────────────────────── change orders ─────────────────────────── */
 
 const changeOrderSchema = z.object({
   projectId: z.string().uuid(),
   title: z.string().min(2, "Title is required"),
   description: z.string().optional(),
-  costImpact: zMoney,
-  revenueImpact: zMoney,
+  costImpact: zSignedMoney,
+  revenueImpact: zSignedMoney,
   scheduleImpactDays: z.coerce.number().int().default(0),
   reason: z.string().optional(),
 });
@@ -343,19 +572,31 @@ export async function submitChangeOrder(
   const projectId = String(formData.get("projectId") ?? "");
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "changeorders.manage")) return fail("You don't have permission");
+    const [current] = await tx
+      .select({ status: t.changeOrders.status })
+      .from(t.changeOrders)
+      .where(eq(t.changeOrders.id, changeOrderId))
+      .limit(1)
+      .for("update");
+    if (!current) return fail("Change order not found");
+    if (current.status !== "draft")
+      return fail("Only draft change orders can be submitted for approval");
     const [co] = await tx
       .update(t.changeOrders)
       .set({ status: "submitted", updatedAt: new Date() })
       .where(eq(t.changeOrders.id, changeOrderId))
       .returning();
     if (!co) return fail("Change order not found");
+    // The approval amount is the COST (budget) impact — the money the firm
+    // actually commits — not the revenue impact. Revenue is carried in the
+    // title so the approver can see the margin effect of the variation.
     await tx.insert(t.approvals).values({
       companyId: ctx.companyId,
       type: "change_order",
       entityType: "change_order",
       entityId: co.id,
-      title: `${co.number} — ${co.title}`,
-      amount: co.revenueImpact,
+      title: `${co.number} — ${co.title} · revenue ${money(num(co.revenueImpact))}`,
+      amount: co.costImpact,
       projectId,
       requestedBy: ctx.userId,
     });

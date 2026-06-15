@@ -7,13 +7,16 @@ import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
 import { num, formatMoney, formatNumber, formatPercent } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
+import { getVendorStats } from "@/lib/queries";
 import { PO_STATUS_TONE } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
+import { ActionButton } from "@/components/app/action-button";
 import { EditVendorDialog } from "../dialogs";
+import { setVendorActive } from "../actions";
 
 const OPEN_PO = new Set([
   "draft",
@@ -77,17 +80,22 @@ export default async function VendorDetailPage({
       .where(eq(t.vendorQuotes.vendorId, id))
       .orderBy(desc(t.vendorQuotes.createdAt));
 
-    return { vendor, orders, quotes };
+    const stats = (await getVendorStats(tx)).get(id) ?? {
+      spend: 0,
+      orders: 0,
+      onTimeRate: null,
+      defectRate: null,
+      receipts: 0,
+    };
+    return { vendor, orders, quotes, stats };
   });
 
   if (!result) notFound();
-  const { vendor, orders, quotes } = result;
+  const { vendor, orders, quotes, stats } = result;
 
   const canManage = can(user.role, "vendors.manage");
   const openPOs = orders.filter((o) => OPEN_PO.has(o.status)).length;
-  const poSpend = orders
-    .filter((o) => o.status !== "cancelled")
-    .reduce((s, o) => s + num(o.totalAmount), 0);
+  const poSpend = stats.spend;
   const compliant = quotes.filter((q) => num(q.technicalCompliance) > 0);
   const avgCompliance = compliant.length
     ? compliant.reduce((s, q) => s + num(q.technicalCompliance), 0) / compliant.length
@@ -96,6 +104,7 @@ export default async function VendorDetailPage({
   return (
     <div>
       <PageHeader
+        eyebrow="Vendor"
         title={
           <span className="flex items-center gap-2">
             {vendor.name}
@@ -114,7 +123,22 @@ export default async function VendorDetailPage({
             )}
           </span>
         }
-        actions={canManage ? <EditVendorDialog vendor={vendor} /> : null}
+        actions={
+          canManage ? (
+            <div className="flex items-center gap-2">
+              <EditVendorDialog vendor={vendor} />
+              <ActionButton
+                action={setVendorActive}
+                fields={{ vendorId: vendor.id, active: vendor.isActive ? "false" : "true" }}
+                confirm={vendor.isActive ? `Deactivate ${vendor.name}? It will be hidden from RFQ/PO pickers.` : undefined}
+                variant="outline"
+                size="sm"
+              >
+                {vendor.isActive ? "Deactivate" : "Reactivate"}
+              </ActionButton>
+            </div>
+          ) : null
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -127,13 +151,14 @@ export default async function VendorDetailPage({
         />
         <StatCard
           label="On-time delivery"
-          value={num(vendor.onTimeRate) > 0 ? formatPercent(vendor.onTimeRate) : "—"}
+          value={stats.onTimeRate !== null ? formatPercent(stats.onTimeRate) : "—"}
+          sub={stats.receipts > 0 ? `${stats.receipts} receipt${stats.receipts === 1 ? "" : "s"}` : "no receipts yet"}
           tone={
-            num(vendor.onTimeRate) === 0
+            stats.onTimeRate === null
               ? "neutral"
-              : num(vendor.onTimeRate) >= 90
+              : stats.onTimeRate >= 90
                 ? "good"
-                : num(vendor.onTimeRate) >= 75
+                : stats.onTimeRate >= 75
                   ? "warning"
                   : "critical"
           }
@@ -175,8 +200,8 @@ export default async function VendorDetailPage({
               <Tag className="mt-0.5 size-4 text-muted-foreground" />
               <div>
                 <dt className="text-xs text-muted-foreground">Defect rate</dt>
-                <dd className={`font-medium ${num(vendor.defectRate) > 5 ? "text-critical" : ""}`}>
-                  {num(vendor.defectRate) > 0 ? formatPercent(vendor.defectRate) : "—"}
+                <dd className={`font-medium ${stats.defectRate !== null && stats.defectRate > 5 ? "text-critical" : ""}`}>
+                  {stats.defectRate !== null ? formatPercent(stats.defectRate) : "—"}
                 </dd>
               </div>
             </div>
@@ -202,7 +227,7 @@ export default async function VendorDetailPage({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">Order</th>
                       <th className="px-4 py-2.5 font-medium">Project</th>
                       <th className="px-4 py-2.5 text-right font-medium">Total</th>
@@ -248,7 +273,7 @@ export default async function VendorDetailPage({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">RFQ</th>
                       <th className="px-4 py-2.5 text-right font-medium">Quoted</th>
                       <th className="px-4 py-2.5 text-right font-medium">Compliance</th>

@@ -58,6 +58,91 @@ export async function createWarehouse(
   });
 }
 
+const warehouseUpdateSchema = warehouseSchema.extend({ warehouseId: z.string().uuid() });
+
+export async function updateWarehouse(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(warehouseUpdateSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "inventory.manage")) return fail("You don't have permission");
+    const [wh] = await tx
+      .update(t.warehouses)
+      .set({ name: d.name, code: d.code ?? null, projectId: d.projectId ?? null, address: d.address ?? null })
+      .where(eq(t.warehouses.id, d.warehouseId))
+      .returning();
+    if (!wh) return fail("Warehouse not found");
+    await audit(tx, ctx, {
+      action: "warehouse.update",
+      entityType: "warehouse",
+      entityId: wh.id,
+      summary: `Updated warehouse ${wh.name}`,
+    });
+    revalidatePath("/inventory");
+    return ok("Warehouse updated");
+  });
+}
+
+export async function setWarehouseActive(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const warehouseId = String(formData.get("warehouseId") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "inventory.manage")) return fail("You don't have permission");
+    const [wh] = await tx
+      .update(t.warehouses)
+      .set({ isActive: active })
+      .where(eq(t.warehouses.id, warehouseId))
+      .returning();
+    if (!wh) return fail("Warehouse not found");
+    await audit(tx, ctx, {
+      action: "warehouse.active",
+      entityType: "warehouse",
+      entityId: wh.id,
+      summary: `${active ? "Reactivated" : "Deactivated"} warehouse ${wh.name}`,
+    });
+    revalidatePath("/inventory");
+    return ok(active ? "Warehouse reactivated" : "Warehouse deactivated");
+  });
+}
+
+const reorderSchema = z.object({
+  itemId: z.string().uuid(),
+  reorderPoint: z.coerce.number().min(0),
+});
+
+/** Set the low-stock reorder point for an inventory item (drives alerting). */
+export async function setReorderPoint(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(reorderSchema, formData);
+  if (!parsed.success) return fail("Enter a valid reorder point", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "inventory.manage")) return fail("You don't have permission");
+    const [item] = await tx
+      .update(t.inventoryItems)
+      .set({ reorderPoint: quantity(d.reorderPoint), updatedAt: new Date() })
+      .where(eq(t.inventoryItems.id, d.itemId))
+      .returning();
+    if (!item) return fail("Item not found");
+    await audit(tx, ctx, {
+      action: "stock.reorder",
+      entityType: "inventory_item",
+      entityId: item.id,
+      summary: `Set reorder point for ${item.itemName} to ${d.reorderPoint} ${item.unit}`,
+    });
+    revalidatePath("/inventory");
+    return ok("Reorder point updated");
+  });
+}
+
 /* ──────────────────────── stock adjustment ─────────────────────────── */
 
 const adjustSchema = z.object({
@@ -89,12 +174,19 @@ export async function adjustStock(
           eq(t.inventoryItems.itemName, d.itemName),
         ),
       )
-      .limit(1);
+      .limit(1)
+      .for("update"); // lock against concurrent allocate/receive on this item
 
     let itemId: string;
     if (existing) {
       const newQty = num(existing.quantity) + d.quantity;
       if (newQty < 0) return fail("Adjustment would take stock below zero");
+      // Never let an adjustment drop on-hand below what's already reserved —
+      // that would strand allocations and show a negative "available".
+      if (newQty < num(existing.allocatedQty))
+        return fail(
+          `Adjustment would drop stock below the ${num(existing.allocatedQty)} ${d.unit} already reserved`,
+        );
       // Only re-weight the unit cost on an inbound adjustment with a stated cost.
       let newUnitCost = num(existing.unitCost);
       if (d.quantity > 0 && d.unitCost > 0) {
@@ -176,6 +268,7 @@ export async function postGoodsReceipt(
   const receivedDateRaw = String(formData.get("receivedDate") ?? "");
   const lineIds = formData.getAll("lineId").map(String);
   const acceptedQtys = formData.getAll("acceptedQty").map((v) => num(String(v)));
+  const rejectedQtys = formData.getAll("rejectedQty").map((v) => num(String(v)));
 
   const dateCheck = zRequiredDate.safeParse(receivedDateRaw);
   if (!poId) return fail("Select a purchase order");
@@ -190,7 +283,8 @@ export async function postGoodsReceipt(
       .select()
       .from(t.purchaseOrders)
       .where(eq(t.purchaseOrders.id, poId))
-      .limit(1);
+      .limit(1)
+      .for("update"); // serialize receipts against the same order
     if (!po) return fail("Purchase order not found");
     if (!["released", "partially_received"].includes(po.status))
       return fail("Only released orders can be received");
@@ -201,10 +295,12 @@ export async function postGoodsReceipt(
       .where(eq(t.purchaseOrderLines.poId, poId));
     const poLineById = new Map(poLines.map((l) => [l.id, l]));
 
-    // Build the set of accepted lines, validating against remaining quantity.
+    // Build the set of received lines, validating against remaining quantity.
+    // A line may be partly accepted and partly rejected (damaged on arrival).
     type Accept = {
       poLine: t.PurchaseOrderLine;
       accepted: number;
+      rejected: number;
       remaining: number;
     };
     const accepts: Accept[] = [];
@@ -213,12 +309,14 @@ export async function postGoodsReceipt(
       if (!poLine) continue;
       const remaining = num(poLine.quantity) - num(poLine.receivedQty);
       let accepted = acceptedQtys[i] ?? 0;
-      if (accepted <= 0) continue;
+      if (accepted < 0) accepted = 0;
       if (accepted > remaining) accepted = remaining; // clamp to outstanding
-      if (accepted <= 0) continue;
-      accepts.push({ poLine, accepted, remaining });
+      const rejected = Math.max(0, rejectedQtys[i] ?? 0);
+      if (accepted <= 0 && rejected <= 0) continue;
+      accepts.push({ poLine, accepted, rejected, remaining });
     }
-    if (accepts.length === 0) return fail("Enter at least one accepted quantity");
+    if (accepts.length === 0)
+      return fail("Enter an accepted or rejected quantity on at least one line");
 
     const number = await nextNumber(tx, ctx.companyId, "GRN", "GRN");
 
@@ -240,14 +338,17 @@ export async function postGoodsReceipt(
       .returning();
 
     let receivedValue = 0;
+    // Received value per cost code, so multi-WBS orders attribute actual cost
+    // (and the matching commitment relief) to the right line's budget.
+    const valueByWbs = new Map<string | null, number>();
     const fulfilledReqIds = new Set<string>();
     const touchedReqIds = new Set<string>();
 
-    for (const { poLine, accepted } of accepts) {
+    for (const { poLine, accepted, rejected } of accepts) {
       const unitCost = num(poLine.unitPrice);
-      receivedValue += accepted * unitCost;
+      const condition = rejected > 0 ? (accepted > 0 ? "partial" : "rejected") : "good";
 
-      // GRN line.
+      // GRN line — always recorded, even for a fully-rejected delivery.
       await tx.insert(t.goodsReceiptLines).values({
         companyId: ctx.companyId,
         grnId: grn.id,
@@ -255,12 +356,20 @@ export async function postGoodsReceipt(
         itemName: poLine.itemName,
         unit: poLine.unit,
         orderedQty: poLine.quantity,
-        receivedQty: quantity(accepted),
+        receivedQty: quantity(accepted + rejected),
         acceptedQty: quantity(accepted),
-        rejectedQty: quantity(0),
-        condition: "good",
+        rejectedQty: quantity(rejected),
+        condition,
         unitCost: money(unitCost),
       });
+
+      // Rejected-only line: record it, but book no stock or cost.
+      if (accepted <= 0) continue;
+
+      const lineValue = accepted * unitCost;
+      receivedValue += lineValue;
+      const wbsKey = poLine.wbsId ?? null;
+      valueByWbs.set(wbsKey, (valueByWbs.get(wbsKey) ?? 0) + lineValue);
 
       // Upsert inventory item with weighted-average unit cost.
       const [item] = await tx
@@ -272,7 +381,8 @@ export async function postGoodsReceipt(
             eq(t.inventoryItems.itemName, poLine.itemName),
           ),
         )
-        .limit(1);
+        .limit(1)
+        .for("update"); // lock for the weighted-average cost update
 
       let itemId: string;
       if (item) {
@@ -329,33 +439,38 @@ export async function postGoodsReceipt(
       if (poLine.requirementId) touchedReqIds.add(poLine.requirementId);
     }
 
-    // Cost ledger: recognise actual on receipt, relieve the commitment.
+    // Cost ledger: recognise actual on receipt and relieve the commitment,
+    // attributing each to the receiving line's cost code.
     if (po.projectId && receivedValue > 0) {
-      const wbsId = accepts[0]?.poLine.wbsId ?? null;
-      await tx.insert(t.costPostings).values([
-        {
-          companyId: ctx.companyId,
-          projectId: po.projectId,
-          wbsId,
-          type: "actual",
-          amount: money(receivedValue),
-          sourceType: "goods_receipt",
-          sourceId: grn.id,
-          description: `${number} received against ${po.number}`,
-          postedBy: ctx.userId,
-        },
-        {
-          companyId: ctx.companyId,
-          projectId: po.projectId,
-          wbsId,
-          type: "commitment",
-          amount: money(-receivedValue),
-          sourceType: "goods_receipt",
-          sourceId: grn.id,
-          description: `${number} relieves commitment on ${po.number}`,
-          postedBy: ctx.userId,
-        },
-      ]);
+      const postings: (typeof t.costPostings.$inferInsert)[] = [];
+      for (const [wbsId, value] of valueByWbs) {
+        if (value <= 0) continue;
+        postings.push(
+          {
+            companyId: ctx.companyId,
+            projectId: po.projectId,
+            wbsId,
+            type: "actual",
+            amount: money(value),
+            sourceType: "goods_receipt",
+            sourceId: grn.id,
+            description: `${number} received against ${po.number}`,
+            postedBy: ctx.userId,
+          },
+          {
+            companyId: ctx.companyId,
+            projectId: po.projectId,
+            wbsId,
+            type: "commitment",
+            amount: money(-value),
+            sourceType: "goods_receipt",
+            sourceId: grn.id,
+            description: `${number} relieves commitment on ${po.number}`,
+            postedBy: ctx.userId,
+          },
+        );
+      }
+      if (postings.length) await tx.insert(t.costPostings).values(postings);
     }
 
     // Recompute PO status across all its lines.
@@ -451,6 +566,218 @@ export async function postGoodsReceipt(
   });
 }
 
+/**
+ * Reverse a posted goods receipt: back out the actual cost, re-instate the
+ * commitment, pull the received stock back out, restore the PO's received
+ * quantities and recompute requirement coverage. Only allowed while the
+ * received goods are still on hand (nothing consumed since).
+ */
+export async function reverseGoodsReceipt(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const grnId = String(formData.get("grnId") ?? "");
+  if (!grnId) return fail("Missing goods receipt");
+
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "inventory.manage")) return fail("You don't have permission");
+
+    const [grn] = await tx
+      .select()
+      .from(t.goodsReceipts)
+      .where(eq(t.goodsReceipts.id, grnId))
+      .limit(1)
+      .for("update");
+    if (!grn) return fail("Goods receipt not found");
+    if (grn.status !== "posted")
+      return fail("Only posted goods receipts can be reversed");
+    if (!grn.warehouseId)
+      return fail("This receipt has no warehouse on record — cannot reverse");
+
+    const grnLines = await tx
+      .select()
+      .from(t.goodsReceiptLines)
+      .where(eq(t.goodsReceiptLines.grnId, grnId));
+    if (grnLines.length === 0) return fail("This receipt has no lines");
+
+    // Lock the parent order (if still present) so status recompute is consistent.
+    if (grn.poId) {
+      await tx
+        .select({ id: t.purchaseOrders.id })
+        .from(t.purchaseOrders)
+        .where(eq(t.purchaseOrders.id, grn.poId))
+        .limit(1)
+        .for("update");
+    }
+
+    const poLineIds = grnLines
+      .map((l) => l.poLineId)
+      .filter((x): x is string => !!x);
+    const poLines = poLineIds.length
+      ? await tx
+          .select()
+          .from(t.purchaseOrderLines)
+          .where(inArray(t.purchaseOrderLines.id, poLineIds))
+      : [];
+    const poLineById = new Map(poLines.map((l) => [l.id, l]));
+
+    const valueByWbs = new Map<string | null, number>();
+    const touchedReqIds = new Set<string>();
+    let reversedValue = 0;
+
+    for (const gl of grnLines) {
+      const acceptedQty = num(gl.acceptedQty);
+      if (acceptedQty <= 0) continue;
+      const unitCost = num(gl.unitCost);
+      const lineValue = acceptedQty * unitCost;
+
+      const [item] = await tx
+        .select()
+        .from(t.inventoryItems)
+        .where(
+          and(
+            eq(t.inventoryItems.warehouseId, grn.warehouseId),
+            eq(t.inventoryItems.itemName, gl.itemName),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (!item)
+        return fail(`Stock for "${gl.itemName}" not found — cannot reverse`);
+
+      const curQty = num(item.quantity);
+      const availableQty = curQty - num(item.allocatedQty);
+      if (availableQty + 1e-9 < acceptedQty)
+        return fail(
+          `Can't reverse "${gl.itemName}": only ${availableQty} ${item.unit} unallocated of the ${acceptedQty} received — the rest is reserved or already used`,
+        );
+
+      // Back the received units (at their landed cost) out of the weighted average.
+      const newQty = curQty - acceptedQty;
+      const newValue = curQty * num(item.unitCost) - lineValue;
+      const newCost = newQty > 1e-9 ? Math.max(0, newValue) / newQty : 0;
+      await tx
+        .update(t.inventoryItems)
+        .set({ quantity: quantity(newQty), unitCost: money(newCost), updatedAt: new Date() })
+        .where(eq(t.inventoryItems.id, item.id));
+
+      // Reversing stock movement (signed negative).
+      await tx.insert(t.inventoryMovements).values({
+        companyId: ctx.companyId,
+        itemId: item.id,
+        type: "adjustment",
+        quantity: quantity(-acceptedQty),
+        unitCost: money(unitCost),
+        referenceType: "goods_receipt",
+        referenceId: grn.id,
+        projectId: grn.projectId,
+        notes: `${grn.number} reversed`,
+        performedBy: ctx.userId,
+      });
+
+      // Restore the PO line's received quantity and re-open the commitment.
+      if (gl.poLineId) {
+        const pl = poLineById.get(gl.poLineId);
+        const restored = Math.max(0, num(pl?.receivedQty ?? "0") - acceptedQty);
+        await tx
+          .update(t.purchaseOrderLines)
+          .set({ receivedQty: quantity(restored) })
+          .where(eq(t.purchaseOrderLines.id, gl.poLineId));
+        const key = pl?.wbsId ?? null;
+        valueByWbs.set(key, (valueByWbs.get(key) ?? 0) + lineValue);
+        if (pl?.requirementId) touchedReqIds.add(pl.requirementId);
+      } else {
+        valueByWbs.set(null, (valueByWbs.get(null) ?? 0) + lineValue);
+      }
+      reversedValue += lineValue;
+    }
+
+    // Cost ledger: remove the actual and re-instate the commitment, per cost code.
+    if (grn.projectId && reversedValue > 0) {
+      const postings: (typeof t.costPostings.$inferInsert)[] = [];
+      for (const [wbsId, value] of valueByWbs) {
+        if (value <= 0) continue;
+        postings.push(
+          {
+            companyId: ctx.companyId,
+            projectId: grn.projectId,
+            wbsId,
+            type: "actual",
+            amount: money(-value),
+            sourceType: "goods_receipt",
+            sourceId: grn.id,
+            description: `${grn.number} reversed — actual backed out`,
+            postedBy: ctx.userId,
+          },
+          {
+            companyId: ctx.companyId,
+            projectId: grn.projectId,
+            wbsId,
+            type: "commitment",
+            amount: money(value),
+            sourceType: "goods_receipt",
+            sourceId: grn.id,
+            description: `${grn.number} reversed — commitment reinstated`,
+            postedBy: ctx.userId,
+          },
+        );
+      }
+      if (postings.length) await tx.insert(t.costPostings).values(postings);
+    }
+
+    // Recompute the order status from its restored received quantities.
+    if (grn.poId) {
+      const lines = await tx
+        .select({
+          quantity: t.purchaseOrderLines.quantity,
+          receivedQty: t.purchaseOrderLines.receivedQty,
+        })
+        .from(t.purchaseOrderLines)
+        .where(eq(t.purchaseOrderLines.poId, grn.poId));
+      const anyReceived = lines.some((l) => num(l.receivedQty) > 1e-9);
+      const allReceived = lines.every(
+        (l) => num(l.receivedQty) >= num(l.quantity) - 1e-9,
+      );
+      await tx
+        .update(t.purchaseOrders)
+        .set({
+          status: allReceived ? "received" : anyReceived ? "partially_received" : "released",
+          updatedAt: new Date(),
+        })
+        .where(eq(t.purchaseOrders.id, grn.poId));
+    }
+
+    for (const reqId of touchedReqIds) {
+      await recomputeRequirementCoverage(tx, reqId);
+    }
+
+    await tx
+      .update(t.goodsReceipts)
+      .set({ status: "reversed", updatedAt: new Date() })
+      .where(eq(t.goodsReceipts.id, grn.id));
+
+    await audit(tx, ctx, {
+      action: "grn.reverse",
+      entityType: "goods_receipt",
+      entityId: grn.id,
+      summary: `Reversed ${grn.number} (${money(reversedValue)} backed out)`,
+      risk: "critical",
+      projectId: grn.projectId,
+    });
+
+    revalidatePath("/receipts");
+    revalidatePath("/deliveries");
+    revalidatePath("/inventory");
+    revalidatePath("/allocations");
+    revalidatePath("/orders");
+    if (grn.projectId) {
+      revalidatePath(`/projects/${grn.projectId}`);
+      revalidatePath("/costing");
+    }
+    return ok(`Goods receipt ${grn.number} reversed`);
+  });
+}
+
 /* ─────────────────────────── allocations ───────────────────────────── */
 
 const reserveSchema = z.object({
@@ -477,7 +804,8 @@ export async function reserveAllocation(
       .select()
       .from(t.inventoryItems)
       .where(eq(t.inventoryItems.id, d.itemId))
-      .limit(1);
+      .limit(1)
+      .for("update"); // lock the row so concurrent reservations can't oversubscribe
     if (!item) return fail("Inventory item not found");
 
     const available = num(item.quantity) - num(item.allocatedQty);

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, lte, ne, or, sql } from "drizzle-orm"
 import type { Tx } from "@/db/client";
 import * as t from "@/db/schema";
 import { num } from "@/lib/money";
+import { estimateAtCompletion } from "@/lib/queries";
 import { todayISO } from "@/lib/dates";
 import { daysUntil } from "@/lib/severity";
 import type { BadgeTone } from "@/lib/constants";
@@ -36,13 +37,6 @@ export type DashboardView = {
 };
 
 const SOON_WINDOW_DAYS = 14;
-
-function deadlineTone(days: number | null): BadgeTone {
-  if (days === null) return "neutral";
-  if (days < 0) return "critical";
-  if (days <= 3) return "warning";
-  return "info";
-}
 
 function dueLabel(days: number | null): string {
   if (days === null) return "no due date";
@@ -288,6 +282,10 @@ export async function buyerDashboard(tx: Tx): Promise<DashboardView> {
       .orderBy(asc(t.purchaseOrders.expectedDate)),
   ]);
 
+  // The query is inclusive of today (lte expectedDate); only those strictly
+  // before today are actually overdue — the rest are due today.
+  const trulyOverdue = deliveriesOverdue.filter((po) => (daysUntil(po.expectedDate) ?? 0) < 0);
+
   const kpis: Kpi[] = [
     {
       label: "Awaiting sourcing",
@@ -308,10 +306,14 @@ export async function buyerDashboard(tx: Tx): Promise<DashboardView> {
       tone: posPending.length ? "warning" : "good",
     },
     {
-      label: "Overdue deliveries",
+      label: "Deliveries due",
       value: deliveriesOverdue.length,
-      sub: deliveriesOverdue.length ? "past expected date" : "all on track",
-      tone: deliveriesOverdue.length ? "critical" : "good",
+      sub: deliveriesOverdue.length
+        ? trulyOverdue.length
+          ? `${trulyOverdue.length} overdue`
+          : "due today"
+        : "all on track",
+      tone: trulyOverdue.length ? "critical" : deliveriesOverdue.length ? "warning" : "good",
     },
   ];
 
@@ -333,15 +335,16 @@ export async function buyerDashboard(tx: Tx): Promise<DashboardView> {
 
   for (const po of deliveriesOverdue) {
     const days = daysUntil(po.expectedDate);
+    const overdue = days !== null && days < 0;
     queue.push({
-      tone: "critical",
+      tone: overdue ? "critical" : "warning",
       title: `Chase ${po.number}: ${po.title}`,
       detail: `${po.vendor} · ${dueLabel(days)}`,
-      impact: "Delivery overdue",
+      impact: overdue ? "Delivery overdue" : "Due today",
       owner: po.vendor,
       href: "/orders",
       actionLabel: "Chase",
-      rank: 250 - (days ?? 0),
+      rank: (overdue ? 250 : 200) - (days ?? 0),
     });
   }
 
@@ -520,8 +523,6 @@ export async function storekeeperDashboard(tx: Tx): Promise<DashboardView> {
 /* ─────────────────────────────── Finance ────────────────────────── */
 
 export async function financeDashboard(tx: Tx): Promise<DashboardView> {
-  const today = todayISO();
-
   const [pendingApprovals, outstandingInvoices, projectAgg, costAgg] =
     await Promise.all([
       tx
@@ -570,7 +571,8 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
         .groupBy(t.costPostings.projectId, t.costPostings.type),
     ]);
 
-  // Roll up cost ledger per project (mirrors getProjectCost forecast logic).
+  // Roll up cost ledger per project, using the same estimate-at-completion as
+  // getProjectCost so the finance dashboard never diverges from /costing.
   const costByPid = new Map<
     string,
     { budgetAdj: number; commitment: number; actual: number }
@@ -595,7 +597,7 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
         actual: 0,
       };
       const budget = num(p.baseBudget) + cost.budgetAdj;
-      const forecast = cost.actual + cost.commitment;
+      const forecast = estimateAtCompletion(budget, cost.actual + cost.commitment);
       return { ...p, budget, forecast, variance: forecast - budget };
     })
     .filter((p) => p.budget > 0 && p.forecast > p.budget)

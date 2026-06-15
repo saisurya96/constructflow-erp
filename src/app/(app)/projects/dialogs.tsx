@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { toast } from "sonner";
 import { Plus, Pencil, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,16 +11,30 @@ import { Field, DateField, NativeSelect } from "@/components/app/field";
 import { UNITS } from "@/lib/constants";
 import {
   createProject,
+  updateProject,
   createTask,
   updateTask,
   createMilestone,
+  updateMilestone,
   createWbsCode,
+  updateWbsCode,
   createChangeOrder,
   updateProjectStatus,
 } from "./actions";
-import { raiseRequirement } from "../requirements/actions";
+import { raiseRequirement, updateRequirement } from "../requirements/actions";
 
 type Option = { id: string; label: string };
+
+type ProjectDefaults = {
+  id: string;
+  name: string;
+  clientName: string | null;
+  location: string | null;
+  contractValue: string;
+  startDate: string | null;
+  endDate: string | null;
+  description: string | null;
+};
 
 export function ProjectStatusControl({
   projectId,
@@ -28,7 +43,10 @@ export function ProjectStatusControl({
   projectId: string;
   status: string;
 }) {
-  const [, formAction] = useActionState(updateProjectStatus, null);
+  const [state, formAction] = useActionState(updateProjectStatus, null);
+  useEffect(() => {
+    if (state && !state.ok) toast.error(state.error);
+  }, [state]);
   return (
     <form action={formAction}>
       <input type="hidden" name="projectId" value={projectId} />
@@ -48,51 +66,91 @@ export function ProjectStatusControl({
   );
 }
 
+function ProjectFields({
+  errors,
+  defaults,
+}: {
+  errors: Record<string, string>;
+  defaults?: ProjectDefaults;
+}) {
+  return (
+    <>
+      <Field label="Project name" htmlFor="name" required error={errors.name}>
+        <Input id="name" name="name" placeholder="Marina Heights Tower" defaultValue={defaults?.name ?? ""} required />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Client" htmlFor="clientName" error={errors.clientName}>
+          <Input id="clientName" name="clientName" placeholder="Client name" defaultValue={defaults?.clientName ?? ""} />
+        </Field>
+        <Field label="Location" htmlFor="location" error={errors.location}>
+          <Input id="location" name="location" placeholder="City / area" defaultValue={defaults?.location ?? ""} />
+        </Field>
+      </div>
+      <Field label="Contract value" htmlFor="contractValue" error={errors.contractValue}>
+        <Input
+          id="contractValue"
+          name="contractValue"
+          type="number"
+          step="0.01"
+          min="0"
+          defaultValue={defaults?.contractValue ?? "0"}
+        />
+      </Field>
+      <p className="text-xs text-muted-foreground">
+        Set the cost budget per cost code on the Budget tab{defaults ? "" : " after the project is created"}.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Start date" htmlFor="startDate" error={errors.startDate}>
+          <DateField name="startDate" defaultValue={defaults?.startDate ?? undefined} />
+        </Field>
+        <Field label="Target completion" htmlFor="endDate" error={errors.endDate}>
+          <DateField name="endDate" defaultValue={defaults?.endDate ?? undefined} />
+        </Field>
+      </div>
+      <Field label="Description" htmlFor="description">
+        <Textarea id="description" name="description" rows={2} defaultValue={defaults?.description ?? ""} />
+      </Field>
+    </>
+  );
+}
+
 export function CreateProjectDialog() {
   return (
     <FormDialog
       title="New project"
-      description="A phase-based WBS is created automatically; edit it on the Budget tab."
+      description="A phase-based WBS is created automatically; set budgets on the Budget tab."
       action={createProject}
       submitLabel="Create project"
+      className="sm:max-w-lg"
       trigger={
         <Button size="sm">
           <Plus className="size-4" /> New project
         </Button>
       }
     >
+      {({ errors }) => <ProjectFields errors={errors} />}
+    </FormDialog>
+  );
+}
+
+export function EditProjectDialog({ project }: { project: ProjectDefaults }) {
+  return (
+    <FormDialog
+      title="Edit project"
+      description="Update the contract value, client, dates or description."
+      action={updateProject}
+      submitLabel="Save changes"
+      className="sm:max-w-lg"
+      trigger={
+        <Button size="sm" variant="outline">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
       {({ errors }) => (
         <>
-          <Field label="Project name" htmlFor="name" required error={errors.name}>
-            <Input id="name" name="name" placeholder="Marina Heights Tower" required />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Client" htmlFor="clientName" error={errors.clientName}>
-              <Input id="clientName" name="clientName" placeholder="Client name" />
-            </Field>
-            <Field label="Location" htmlFor="location" error={errors.location}>
-              <Input id="location" name="location" placeholder="City / area" />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Budget (cost)" htmlFor="budget" error={errors.budget}>
-              <Input id="budget" name="budget" type="number" step="0.01" min="0" defaultValue="0" />
-            </Field>
-            <Field label="Contract value" htmlFor="contractValue" error={errors.contractValue}>
-              <Input id="contractValue" name="contractValue" type="number" step="0.01" min="0" defaultValue="0" />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Start date" htmlFor="startDate" error={errors.startDate}>
-              <DateField name="startDate" />
-            </Field>
-            <Field label="Target completion" htmlFor="endDate" error={errors.endDate}>
-              <DateField name="endDate" />
-            </Field>
-          </div>
-          <Field label="Description" htmlFor="description">
-            <Textarea id="description" name="description" rows={2} />
-          </Field>
+          <input type="hidden" name="projectId" value={project.id} />
+          <ProjectFields errors={errors} defaults={project} />
         </>
       )}
     </FormDialog>
@@ -160,41 +218,101 @@ export function AddTaskDialog({
 export function UpdateTaskDialog({
   task,
   projectId,
+  wbsOptions,
+  memberOptions,
 }: {
-  task: { id: string; name: string; status: string; progress: string };
+  task: {
+    id: string;
+    name: string;
+    status: string;
+    progress: string;
+    wbsId: string | null;
+    assigneeId: string | null;
+    startDate: string | null;
+    dueDate: string | null;
+    weight: string;
+  };
   projectId: string;
+  wbsOptions: Option[];
+  memberOptions: Option[];
 }) {
   return (
     <FormDialog
       title={`Update: ${task.name}`}
       action={updateTask}
       submitLabel="Save"
+      className="sm:max-w-lg"
       trigger={
         <Button size="xs" variant="ghost">
           <Pencil className="size-3.5" /> Update
         </Button>
       }
     >
-      <input type="hidden" name="taskId" value={task.id} />
-      <input type="hidden" name="projectId" value={projectId} />
-      <Field label="Status" htmlFor="status">
-        <NativeSelect id="status" name="status" defaultValue={task.status}>
-          <option value="not_started">Not started</option>
-          <option value="in_progress">In progress</option>
-          <option value="blocked">Blocked</option>
-          <option value="done">Done</option>
-        </NativeSelect>
-      </Field>
-      <Field label="Progress %" htmlFor="progress">
-        <Input
-          id="progress"
-          name="progress"
-          type="number"
-          min="0"
-          max="100"
-          defaultValue={String(Math.round(Number(task.progress)))}
-        />
-      </Field>
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="taskId" value={task.id} />
+          <input type="hidden" name="projectId" value={projectId} />
+          <Field label="Task name" htmlFor="name" required error={errors.name}>
+            <Input id="name" name="name" required defaultValue={task.name} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Status" htmlFor="status">
+              <NativeSelect id="status" name="status" defaultValue={task.status}>
+                <option value="not_started">Not started</option>
+                <option value="in_progress">In progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="done">Done</option>
+              </NativeSelect>
+            </Field>
+            <Field label="Progress %" htmlFor="progress">
+              <Input
+                id="progress"
+                name="progress"
+                type="number"
+                min="0"
+                max="100"
+                defaultValue={String(Math.round(Number(task.progress)))}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Cost code (WBS)" htmlFor="wbsId">
+              <NativeSelect id="wbsId" name="wbsId" defaultValue={task.wbsId ?? ""}>
+                <option value="">— none —</option>
+                {wbsOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Assignee" htmlFor="assigneeId">
+              <NativeSelect id="assigneeId" name="assigneeId" defaultValue={task.assigneeId ?? ""}>
+                <option value="">— unassigned —</option>
+                {memberOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </NativeSelect>
+            </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Start date" htmlFor="startDate">
+              <DateField name="startDate" defaultValue={task.startDate ?? undefined} />
+            </Field>
+            <Field label="Due date" htmlFor="dueDate">
+              <DateField name="dueDate" defaultValue={task.dueDate ?? undefined} />
+            </Field>
+            <Field label="Weight" htmlFor="weight" hint="Progress weighting" error={errors.weight}>
+              <Input
+                id="weight"
+                name="weight"
+                type="number"
+                min="0.01"
+                step="0.01"
+                defaultValue={String(Number(task.weight))}
+              />
+            </Field>
+          </div>
+        </>
+      )}
     </FormDialog>
   );
 }
@@ -223,6 +341,52 @@ export function AddMilestoneDialog({ projectId }: { projectId: string }) {
             </Field>
             <Field label="Billing amount" htmlFor="billingAmount" error={errors.billingAmount}>
               <Input id="billingAmount" name="billingAmount" type="number" step="0.01" min="0" defaultValue="0" />
+            </Field>
+          </div>
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function EditMilestoneDialog({
+  projectId,
+  milestone,
+}: {
+  projectId: string;
+  milestone: { id: string; name: string; dueDate: string | null; billingAmount: string };
+}) {
+  return (
+    <FormDialog
+      title={`Edit milestone`}
+      action={updateMilestone}
+      submitLabel="Save"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="milestoneId" value={milestone.id} />
+          <Field label="Milestone name" htmlFor="name" required error={errors.name}>
+            <Input id="name" name="name" required defaultValue={milestone.name} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Due date" htmlFor="dueDate">
+              <DateField name="dueDate" defaultValue={milestone.dueDate ?? undefined} />
+            </Field>
+            <Field label="Billing amount" htmlFor="billingAmount" error={errors.billingAmount}>
+              <Input
+                id="billingAmount"
+                name="billingAmount"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={String(Number(milestone.billingAmount))}
+              />
             </Field>
           </div>
         </>
@@ -263,6 +427,52 @@ export function AddWbsDialog({ projectId }: { projectId: string }) {
   );
 }
 
+export function EditWbsDialog({
+  projectId,
+  wbs,
+}: {
+  projectId: string;
+  wbs: { id: string; code: string; name: string; budget: string };
+}) {
+  return (
+    <FormDialog
+      title={`Edit cost code ${wbs.code}`}
+      action={updateWbsCode}
+      submitLabel="Save"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="wbsId" value={wbs.id} />
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Code" htmlFor="code" required error={errors.code}>
+              <Input id="code" name="code" required defaultValue={wbs.code} />
+            </Field>
+            <Field label="Name" htmlFor="name" required error={errors.name} className="col-span-2">
+              <Input id="name" name="name" required defaultValue={wbs.name} />
+            </Field>
+          </div>
+          <Field label="Budget" htmlFor="budget" error={errors.budget}>
+            <Input
+              id="budget"
+              name="budget"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={String(Number(wbs.budget))}
+            />
+          </Field>
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
 export function AddChangeOrderDialog({ projectId }: { projectId: string }) {
   return (
     <FormDialog
@@ -289,6 +499,9 @@ export function AddChangeOrderDialog({ projectId }: { projectId: string }) {
               <Input id="revenueImpact" name="revenueImpact" type="number" step="0.01" defaultValue="0" />
             </Field>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Use a negative value for omissions / deductive variations or client credits.
+          </p>
           <Field label="Schedule impact (days)" htmlFor="scheduleImpactDays">
             <Input id="scheduleImpactDays" name="scheduleImpactDays" type="number" defaultValue="0" />
           </Field>
@@ -298,6 +511,74 @@ export function AddChangeOrderDialog({ projectId }: { projectId: string }) {
         </>
       )}
     </FormDialog>
+  );
+}
+
+type RequirementDefaults = {
+  id: string;
+  itemName: string;
+  unit: string;
+  quantity: string;
+  estimatedUnitCost: string;
+  neededBy: string | null;
+  taskId: string | null;
+  wbsId: string | null;
+  description: string | null;
+};
+
+function RequirementFields({
+  errors,
+  taskOptions,
+  wbsOptions,
+  defaults,
+}: {
+  errors: Record<string, string>;
+  taskOptions: Option[];
+  wbsOptions: Option[];
+  defaults?: RequirementDefaults;
+}) {
+  return (
+    <>
+      <Field label="Item" htmlFor="itemName" required error={errors.itemName}>
+        <Input id="itemName" name="itemName" required placeholder="Reinforcement steel Y16" defaultValue={defaults?.itemName ?? ""} />
+      </Field>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Quantity" htmlFor="quantity" required error={errors.quantity}>
+          <Input id="quantity" name="quantity" type="number" step="0.001" min="0" required defaultValue={defaults ? String(Number(defaults.quantity)) : ""} />
+        </Field>
+        <Field label="Unit" htmlFor="unit" required error={errors.unit}>
+          <NativeSelect id="unit" name="unit" defaultValue={defaults?.unit ?? "pcs"}>
+            {UNITS.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Est. unit cost" htmlFor="estimatedUnitCost" error={errors.estimatedUnitCost}>
+          <Input id="estimatedUnitCost" name="estimatedUnitCost" type="number" step="0.01" min="0" defaultValue={defaults ? String(Number(defaults.estimatedUnitCost)) : "0"} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="For task" htmlFor="taskId">
+          <NativeSelect id="taskId" name="taskId" defaultValue={defaults?.taskId ?? ""}>
+            <option value="">— none —</option>
+            {taskOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Cost code" htmlFor="wbsId">
+          <NativeSelect id="wbsId" name="wbsId" defaultValue={defaults?.wbsId ?? ""}>
+            <option value="">— none —</option>
+            {wbsOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </div>
+      <Field label="Needed by" htmlFor="neededBy">
+        <DateField name="neededBy" defaultValue={defaults?.neededBy ?? undefined} />
+      </Field>
+    </>
   );
 }
 
@@ -318,6 +599,7 @@ export function RaiseRequirementDialog({
       description="Flags the linked task until the material is covered."
       action={raiseRequirement}
       submitLabel="Raise requirement"
+      className="sm:max-w-lg"
       trigger={
         <Button size="sm" variant={variant}>
           <Boxes className="size-4" /> Raise requirement
@@ -327,45 +609,41 @@ export function RaiseRequirementDialog({
       {({ errors }) => (
         <>
           <input type="hidden" name="projectId" value={projectId} />
-          <Field label="Item" htmlFor="itemName" required error={errors.itemName}>
-            <Input id="itemName" name="itemName" required placeholder="Reinforcement steel Y16" />
-          </Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Quantity" htmlFor="quantity" required error={errors.quantity}>
-              <Input id="quantity" name="quantity" type="number" step="0.001" min="0" required />
-            </Field>
-            <Field label="Unit" htmlFor="unit" required error={errors.unit}>
-              <NativeSelect id="unit" name="unit" defaultValue="pcs">
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </NativeSelect>
-            </Field>
-            <Field label="Est. unit cost" htmlFor="estimatedUnitCost" error={errors.estimatedUnitCost}>
-              <Input id="estimatedUnitCost" name="estimatedUnitCost" type="number" step="0.01" min="0" defaultValue="0" />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="For task" htmlFor="taskId">
-              <NativeSelect id="taskId" name="taskId" defaultValue="">
-                <option value="">— none —</option>
-                {taskOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
-                ))}
-              </NativeSelect>
-            </Field>
-            <Field label="Cost code" htmlFor="wbsId">
-              <NativeSelect id="wbsId" name="wbsId" defaultValue="">
-                <option value="">— none —</option>
-                {wbsOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
-                ))}
-              </NativeSelect>
-            </Field>
-          </div>
-          <Field label="Needed by" htmlFor="neededBy">
-            <DateField name="neededBy" />
-          </Field>
+          <RequirementFields errors={errors} taskOptions={taskOptions} wbsOptions={wbsOptions} />
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function EditRequirementDialog({
+  projectId,
+  taskOptions,
+  wbsOptions,
+  requirement,
+}: {
+  projectId: string;
+  taskOptions: Option[];
+  wbsOptions: Option[];
+  requirement: RequirementDefaults;
+}) {
+  return (
+    <FormDialog
+      title="Edit requirement"
+      action={updateRequirement}
+      submitLabel="Save"
+      className="sm:max-w-lg"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="requirementId" value={requirement.id} />
+          <RequirementFields errors={errors} taskOptions={taskOptions} wbsOptions={wbsOptions} defaults={requirement} />
         </>
       )}
     </FormDialog>

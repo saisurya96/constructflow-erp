@@ -94,6 +94,7 @@ export default async function NewReceiptPage({
   return (
     <div>
       <PageHeader
+        eyebrow="Goods receipt"
         title="New goods receipt"
         description="Confirm what was delivered against a released order to book stock and cost."
         actions={

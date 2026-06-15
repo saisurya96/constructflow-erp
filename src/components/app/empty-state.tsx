@@ -16,20 +16,27 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-xl border border-dashed bg-card/50 px-6 py-12 text-center",
+        "relative flex flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed bg-card/40 px-6 py-12 text-center",
         className,
       )}
     >
+      {/* faint engineering grid — drafting-paper texture */}
+      <div
+        aria-hidden
+        className="blueprint-grid pointer-events-none absolute inset-0 text-border opacity-50 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]"
+      />
       {icon && (
-        <div className="mb-3 flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <div className="relative mb-3 flex size-11 items-center justify-center rounded-md border bg-muted text-muted-foreground">
           {icon}
         </div>
       )}
-      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="relative text-sm font-medium text-foreground">{title}</p>
       {description && (
-        <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
+        <p className="relative mt-1 max-w-sm text-sm text-muted-foreground">
+          {description}
+        </p>
       )}
-      {action && <div className="mt-4">{action}</div>}
+      {action && <div className="relative mt-4">{action}</div>}
     </div>
   );
 }

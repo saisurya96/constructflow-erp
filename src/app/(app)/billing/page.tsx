@@ -35,7 +35,8 @@ export default async function BillingPage() {
       })
       .from(t.invoices)
       .innerJoin(t.projects, eq(t.projects.id, t.invoices.projectId))
-      .orderBy(desc(t.invoices.createdAt));
+      .orderBy(desc(t.invoices.createdAt))
+      .limit(200);
 
     const projects = await tx
       .select({ id: t.projects.id, code: t.projects.code, name: t.projects.name })
@@ -102,6 +103,7 @@ export default async function BillingPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Revenue · billing"
         title="Billing"
         description="Client invoicing — milestone and progress applications, payments and collections."
         actions={<CreateInvoiceDialog projects={projectOptions} />}
@@ -140,7 +142,7 @@ export default async function BillingPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Invoice</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 font-medium">Type</th>

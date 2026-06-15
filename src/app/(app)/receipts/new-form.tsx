@@ -120,7 +120,7 @@ export function NewGrnForm({
         </div>
       </SectionCard>
 
-      <SectionCard title="Lines" description="Accepted quantity defaults to the outstanding amount. Set to 0 to skip a line." noPadding>
+      <SectionCard title="Lines" description="Accepted defaults to the outstanding amount; set it to 0 to skip a line. Record any damaged/refused units under Reject." noPadding>
         {!selected || selected.lines.length === 0 ? (
           <div className="p-6">
             <EmptyState title="Nothing outstanding" description="Every line on this order is already fully received." />
@@ -129,12 +129,13 @@ export function NewGrnForm({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 text-right font-medium">Ordered</th>
                   <th className="px-4 py-2.5 text-right font-medium">Received</th>
                   <th className="px-4 py-2.5 text-right font-medium">Outstanding</th>
-                  <th className="px-4 py-2.5 text-right font-medium w-40">Accept now</th>
+                  <th className="px-4 py-2.5 text-right font-medium w-32">Accept now</th>
+                  <th className="px-4 py-2.5 text-right font-medium w-28">Reject</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,7 +161,17 @@ export function NewGrnForm({
                           min="0"
                           max={remaining}
                           defaultValue={remaining > 0 ? String(remaining) : "0"}
-                          className="h-8 w-32 text-right tabular"
+                          className="h-8 w-28 text-right tabular"
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Input
+                          name="rejectedQty"
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          defaultValue="0"
+                          className="h-8 w-24 text-right tabular"
                         />
                       </td>
                     </tr>

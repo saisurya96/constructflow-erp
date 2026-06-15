@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   ScrollText,
   Settings,
+  ChevronsUpDown,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ import type { NavItem } from "@/lib/rbac";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -75,14 +77,29 @@ function NavLinks({
             key={item.key}
             href={item.href}
             onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "group relative flex items-center gap-2.5 rounded-md py-1.5 pl-4 pr-2.5 text-[0.8125rem] transition-colors",
               active
-                ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                ? "bg-card font-medium text-foreground shadow-[0_1px_0_var(--sidebar-border)] ring-1 ring-sidebar-border"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
           >
-            <Icon className="size-4 shrink-0" />
+            {/* hi-vis active tick — the brand signal */}
+            <span
+              className={cn(
+                "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-sm bg-brand transition-all",
+                active ? "opacity-100" : "opacity-0 group-hover:opacity-40 group-hover:bg-sidebar-foreground",
+              )}
+            />
+            <Icon
+              className={cn(
+                "size-4 shrink-0 transition-colors",
+                active
+                  ? "text-brand"
+                  : "text-sidebar-foreground/70 group-hover:text-foreground",
+              )}
+            />
             {item.label}
           </Link>
         );
@@ -93,32 +110,44 @@ function NavLinks({
 
 function Brand() {
   return (
-    <div className="flex items-center gap-2 px-2 py-1">
-      <div className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-        <HardHat className="size-4.5" />
+    <Link href="/dashboard" className="flex items-center gap-2.5 px-1.5 py-1">
+      <div className="flex size-7 items-center justify-center rounded-md bg-brand text-brand-foreground">
+        <HardHat className="size-[1.05rem]" strokeWidth={2.25} />
       </div>
-      <span className="text-base font-semibold text-sidebar-foreground">
+      <span className="font-display text-[0.95rem] font-semibold tracking-tight text-foreground">
         ConstructFlow
       </span>
+    </Link>
+  );
+}
+
+function CompanyTag({ name }: { name: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1.5 pb-3 pt-1">
+      <span className="h-px flex-1 bg-sidebar-border" />
+      <span className="eyebrow truncate text-sidebar-foreground/70">{name}</span>
+      <span className="h-px flex-1 bg-sidebar-border" />
     </div>
   );
 }
 
 function UserMenu({ user }: { user: ShellUser }) {
+  const [pending, startTransition] = useTransition();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-accent">
-        <div className="flex size-8 items-center justify-center rounded-full bg-sidebar-primary/30 text-xs font-semibold text-sidebar-foreground">
+      <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-sidebar-accent">
+        <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-[0.6875rem] font-semibold text-background">
           {user.fullName.slice(0, 2).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-sidebar-foreground">
+          <p className="truncate text-[0.8125rem] font-medium text-foreground">
             {user.fullName}
           </p>
-          <p className="truncate text-xs text-sidebar-foreground/60">
+          <p className="truncate text-xs text-sidebar-foreground">
             {user.roleLabel}
           </p>
         </div>
+        <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/60" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-56">
         <DropdownMenuLabel>
@@ -126,14 +155,14 @@ function UserMenu({ user }: { user: ShellUser }) {
           <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <form action={logoutAction}>
-          <button
-            type="submit"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-          >
-            <LogOut className="size-4" /> Sign out
-          </button>
-        </form>
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={pending}
+          closeOnClick={false}
+          onClick={() => startTransition(() => logoutAction())}
+        >
+          <LogOut className="size-4" /> Sign out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -155,13 +184,9 @@ export function AppShell({
   return (
     <div className="flex min-h-screen">
       {/* desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-2 border-r border-sidebar-border bg-sidebar p-3 lg:flex">
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col gap-1 border-r border-sidebar-border bg-sidebar px-3 py-4 lg:flex">
         <Brand />
-        <div className="px-2 pb-2">
-          <p className="truncate text-xs font-medium text-sidebar-foreground/60">
-            {company.name}
-          </p>
-        </div>
+        <CompanyTag name={company.name} />
         <div className="flex-1 overflow-y-auto">
           <NavLinks nav={nav} />
         </div>
@@ -171,22 +196,20 @@ export function AppShell({
       </aside>
 
       {/* mobile top bar */}
-      <div className="fixed inset-x-0 top-0 z-30 flex items-center justify-between border-b bg-sidebar px-4 py-2.5 lg:hidden">
+      <div className="fixed inset-x-0 top-0 z-30 flex items-center justify-between border-b border-sidebar-border bg-sidebar px-4 py-2.5 lg:hidden">
         <Brand />
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger className="rounded-md p-2 text-sidebar-foreground hover:bg-sidebar-accent">
+          <SheetTrigger className="rounded-md p-2 text-foreground hover:bg-sidebar-accent">
             <Menu className="size-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 bg-sidebar p-3 text-sidebar-foreground">
+          <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-3 text-sidebar-foreground">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <Brand />
-            <div className="px-2 py-2">
-              <p className="truncate text-xs font-medium text-sidebar-foreground/60">
-                {company.name}
-              </p>
+            <CompanyTag name={company.name} />
+            <div className="flex-1 overflow-y-auto">
+              <NavLinks nav={nav} onNavigate={() => setOpen(false)} />
             </div>
-            <NavLinks nav={nav} onNavigate={() => setOpen(false)} />
-            <div className="mt-4 border-t border-sidebar-border pt-2">
+            <div className="mt-2 border-t border-sidebar-border pt-2">
               <UserMenu user={user} />
             </div>
           </SheetContent>
@@ -194,8 +217,8 @@ export function AppShell({
       </div>
 
       {/* content */}
-      <main className="flex-1 lg:pl-64">
-        <div className="mx-auto max-w-7xl px-4 py-6 pt-18 lg:px-8 lg:pt-8">
+      <main className="flex-1 lg:pl-60">
+        <div className="mx-auto max-w-7xl px-4 py-6 pt-18 lg:px-10 lg:py-9">
           {children}
         </div>
       </main>

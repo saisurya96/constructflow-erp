@@ -35,7 +35,7 @@ export function ActionItemCard({
   return (
     <div
       className={cn(
-        "rounded-lg border border-l-4 bg-card p-3.5 shadow-xs",
+        "group rounded-md border border-l-2 bg-card p-3.5 transition-colors hover:bg-muted/40",
         BORDER[tone],
       )}
     >
@@ -59,7 +59,7 @@ export function ActionItemCard({
         {href && (
           <Link
             href={href}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-accent"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent group-hover:text-brand"
           >
             {actionLabel ?? "Open"}
             <ArrowRight className="size-3.5" />

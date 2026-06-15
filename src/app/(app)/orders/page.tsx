@@ -37,7 +37,8 @@ export default async function OrdersPage() {
       .from(t.purchaseOrders)
       .innerJoin(t.vendors, eq(t.vendors.id, t.purchaseOrders.vendorId))
       .leftJoin(t.projects, eq(t.projects.id, t.purchaseOrders.projectId))
-      .orderBy(desc(t.purchaseOrders.createdAt));
+      .orderBy(desc(t.purchaseOrders.createdAt))
+      .limit(200);
 
     const vendors = await tx
       .select({ id: t.vendors.id, name: t.vendors.name })
@@ -82,6 +83,7 @@ export default async function OrdersPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Procurement"
         title="Purchase Orders"
         description="Purchase orders and subcontracts — raise, approve, release and receive against the cost ledger."
         actions={
@@ -123,7 +125,7 @@ export default async function OrdersPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Order</th>
                   <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Vendor</th>

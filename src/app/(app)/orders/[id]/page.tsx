@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
-import { Building2, CalendarClock, FolderKanban, Receipt } from "lucide-react";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { Building2, CalendarClock, FolderKanban, Receipt, Printer, Ban } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -15,7 +15,10 @@ import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { ProgressMeter } from "@/components/app/meters";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
-import { submitPurchaseOrder, cancelPurchaseOrder } from "../actions";
+import { AttachmentsPanel } from "@/components/app/attachments-panel";
+import { Button } from "@/components/ui/button";
+import { submitPurchaseOrder, cancelPurchaseOrder, closePurchaseOrder } from "../actions";
+import { EditPoDialog } from "../dialogs";
 
 export default async function OrderDetailPage({
   params,
@@ -64,6 +67,7 @@ export default async function OrderDetailPage({
         unitPrice: t.purchaseOrderLines.unitPrice,
         lineTotal: t.purchaseOrderLines.lineTotal,
         receivedQty: t.purchaseOrderLines.receivedQty,
+        wbsId: t.purchaseOrderLines.wbsId,
         wbsCode: t.wbsCodes.code,
         wbsName: t.wbsCodes.name,
       })
@@ -72,12 +76,57 @@ export default async function OrderDetailPage({
       .where(eq(t.purchaseOrderLines.poId, id))
       .orderBy(asc(t.purchaseOrderLines.sortOrder));
 
-    return { po, lines };
+    // Latest approval decision for this order — surfaces the rejection reason.
+    const [approval] = await tx
+      .select({
+        status: t.approvals.status,
+        decisionNote: t.approvals.decisionNote,
+        decidedByName: t.users.fullName,
+      })
+      .from(t.approvals)
+      .leftJoin(t.users, eq(t.users.id, t.approvals.decidedBy))
+      .where(
+        and(
+          eq(t.approvals.entityId, id),
+          eq(t.approvals.entityType, "purchase_order"),
+        ),
+      )
+      .orderBy(desc(t.approvals.createdAt))
+      .limit(1);
+
+    // Option lists for the draft edit dialog (only needed while editable).
+    let vendorOptions: { id: string; label: string }[] = [];
+    let projectOptions: { id: string; label: string }[] = [];
+    let wbsByProject: Record<string, { id: string; label: string }[]> = {};
+    if (po.status === "draft") {
+      const vendors = await tx
+        .select({ id: t.vendors.id, name: t.vendors.name })
+        .from(t.vendors)
+        .where(eq(t.vendors.isActive, true))
+        .orderBy(asc(t.vendors.name));
+      vendorOptions = vendors.map((v) => ({ id: v.id, label: v.name }));
+      const projects = await tx
+        .select({ id: t.projects.id, code: t.projects.code, name: t.projects.name })
+        .from(t.projects)
+        .orderBy(asc(t.projects.code));
+      projectOptions = projects.map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }));
+      const wbs = await tx
+        .select({ id: t.wbsCodes.id, projectId: t.wbsCodes.projectId, code: t.wbsCodes.code, name: t.wbsCodes.name })
+        .from(t.wbsCodes)
+        .orderBy(asc(t.wbsCodes.sortOrder), asc(t.wbsCodes.code));
+      wbsByProject = {};
+      for (const w of wbs) {
+        (wbsByProject[w.projectId] ??= []).push({ id: w.id, label: `${w.code} — ${w.name}` });
+      }
+    }
+
+    return { po, lines, vendorOptions, projectOptions, wbsByProject, approval };
   });
 
   if (!result) notFound();
-  const { po, lines } = result;
+  const { po, lines, vendorOptions, projectOptions, wbsByProject, approval } = result;
   const canManage = can(user.role, "procurement.manage");
+  const canReceive = can(user.role, "inventory.manage");
   const isSub = po.type === "subcontract";
 
   const orderedQty = lines.reduce((s, l) => s + num(l.quantity), 0);
@@ -89,6 +138,7 @@ export default async function OrderDetailPage({
   return (
     <div>
       <PageHeader
+        eyebrow="Procurement"
         title={
           <span className="flex items-center gap-2">
             {po.number}
@@ -119,6 +169,13 @@ export default async function OrderDetailPage({
         }
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href={`/print/po/${po.id}`} target="_blank" />}
+            >
+              <Printer className="size-4" /> PDF
+            </Button>
             {po.status === "pending_approval" ? (
               <StatusBadge tone="warning">Awaiting approval</StatusBadge>
             ) : (
@@ -126,6 +183,28 @@ export default async function OrderDetailPage({
             )}
             {canManage && po.status === "draft" && (
               <>
+                <EditPoDialog
+                  poId={po.id}
+                  vendorOptions={vendorOptions}
+                  projectOptions={projectOptions}
+                  wbsByProject={wbsByProject}
+                  defaults={{
+                    type: po.type,
+                    vendorId: po.vendorId,
+                    projectId: po.projectId ?? "",
+                    title: po.title,
+                    expectedDate: po.expectedDate,
+                    paymentTerms: po.paymentTerms,
+                    notes: po.notes,
+                    lines: lines.map((l) => ({
+                      itemName: l.itemName,
+                      unit: l.unit,
+                      quantity: l.quantity,
+                      unitPrice: l.unitPrice,
+                      wbsId: l.wbsId,
+                    })),
+                  }}
+                />
                 <ActionButton action={submitPurchaseOrder} fields={{ poId: po.id }} size="sm">
                   Submit
                 </ActionButton>
@@ -140,6 +219,17 @@ export default async function OrderDetailPage({
                 </ActionButton>
               </>
             )}
+            {canManage && ["released", "partially_received"].includes(po.status) && (
+              <ActionButton
+                action={closePurchaseOrder}
+                fields={{ poId: po.id }}
+                variant="outline"
+                size="sm"
+                confirm="Close this order? Any remaining outstanding commitment is released; received goods stay posted."
+              >
+                Close
+              </ActionButton>
+            )}
             {canManage &&
               ["pending_approval", "approved", "released", "partially_received"].includes(
                 po.status,
@@ -149,7 +239,7 @@ export default async function OrderDetailPage({
                   fields={{ poId: po.id }}
                   variant="outline"
                   size="sm"
-                  confirm="Cancel this order? Any released commitment will need manual review."
+                  confirm="Cancel this order? Any committed cost still open will be released back to the job budget; received goods stay posted."
                 >
                   Cancel
                 </ActionButton>
@@ -157,6 +247,15 @@ export default async function OrderDetailPage({
           </div>
         }
       />
+
+      {po.status === "cancelled" && approval?.status === "rejected" && approval.decisionNote && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-critical/30 bg-critical/5 px-3 py-2.5 text-sm text-critical">
+          <Ban className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Rejected{approval.decidedByName ? ` by ${approval.decidedByName}` : ""}: {approval.decisionNote}
+          </span>
+        </div>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Subtotal" value={formatMoney(po.subtotal, "AED", { compact: true })} />
@@ -193,7 +292,7 @@ export default async function OrderDetailPage({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 text-right font-medium">Qty</th>
                   <th className="px-4 py-2.5 text-right font-medium">Unit price</th>
@@ -266,13 +365,30 @@ export default async function OrderDetailPage({
         )}
       </SectionCard>
 
-      {isReceiving && (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
-          <Receipt className="size-4" />
-          Released{po.releasedAt ? ` ${formatDate(po.releasedAt)}` : ""}. Record deliveries against
-          this order in Goods Receipts to recognize cost and update inventory.
+      {po.notes && (
+        <SectionCard title="Notes" className="mt-4">
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{po.notes}</p>
+        </SectionCard>
+      )}
+
+      {isReceiving && po.status !== "received" && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-2">
+            <Receipt className="size-4" />
+            Released{po.releasedAt ? ` ${formatDate(po.releasedAt)}` : ""}. Record deliveries to
+            recognize cost and update inventory.
+          </span>
+          {canReceive && (
+            <Button size="sm" render={<Link href={`/receipts/new?poId=${po.id}`} />}>
+              <Receipt className="size-4" /> Receive against this PO
+            </Button>
+          )}
         </div>
       )}
+
+      <div className="mt-4">
+        <AttachmentsPanel entityType="purchase_order" entityId={po.id} />
+      </div>
     </div>
   );
 }

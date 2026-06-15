@@ -41,6 +41,10 @@ export function FormDialog({
   useEffect(() => {
     if (state?.ok) {
       toast.success(state.message ?? "Saved");
+      // Closing the dialog in response to a completed server action is the
+      // intended use of this effect (sync external action result → UI), not a
+      // cascading-render smell — so this rule doesn't apply here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpen(false);
       if (state.redirectTo) router.push(state.redirectTo);
       else router.refresh();

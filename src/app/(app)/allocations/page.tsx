@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Split, AlertTriangle, PackageCheck } from "lucide-react";
 import { requireUser, db } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
@@ -110,7 +110,8 @@ export default async function AllocationsPage() {
       .innerJoin(t.inventoryItems, eq(t.inventoryItems.id, t.inventoryAllocations.itemId))
       .leftJoin(t.projects, eq(t.projects.id, t.inventoryAllocations.projectId))
       .leftJoin(t.tasks, eq(t.tasks.id, t.inventoryAllocations.taskId))
-      .orderBy(desc(t.inventoryAllocations.createdAt));
+      .orderBy(desc(t.inventoryAllocations.createdAt))
+      .limit(200);
 
     // Tasks for the reserve dialog (label per project).
     const tasks = await tx
@@ -164,6 +165,7 @@ export default async function AllocationsPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Material loop"
         title="Allocations"
         description="Reserve on-hand stock against project needs, then issue it to site."
       />
@@ -194,7 +196,7 @@ export default async function AllocationsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Requirement</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 text-right font-medium">Required</th>
@@ -267,7 +269,7 @@ export default async function AllocationsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 font-medium">Warehouse</th>
                   <th className="px-4 py-2.5 text-right font-medium">Available</th>
@@ -315,7 +317,7 @@ export default async function AllocationsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 font-medium">Task</th>

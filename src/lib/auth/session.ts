@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { authDb } from "@/db/client";
 import { sessions, users } from "@/db/schema";
 import type { UserRole } from "@/db/schema";

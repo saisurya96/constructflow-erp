@@ -41,6 +41,8 @@ export function parseForm<T extends z.ZodTypeAny>(
 
 /** zod coercion helpers for HTML form values. */
 export const zMoney = z.coerce.number().min(0).default(0);
+/** Money that may be negative — e.g. deductive/omission variations and credits. */
+export const zSignedMoney = z.coerce.number().default(0);
 export const zQty = z.coerce.number().positive();
 export const zOptionalDate = z
   .string()

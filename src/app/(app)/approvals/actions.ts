@@ -31,6 +31,9 @@ export async function decideApproval(
   const parsed = parseForm(decideSchema, formData);
   if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
   const d = parsed.data;
+  // A rejection must carry a reason — it's shown back to the requester.
+  if (d.decision === "reject" && !d.note?.trim())
+    return fail("A reason is required to reject", { note: "Tell the requester why" });
 
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "approvals.decide")) return fail("You don't have permission");
@@ -44,6 +47,24 @@ export async function decideApproval(
     if (approval.status !== "pending") return fail("This request has already been decided");
 
     const approved = d.decision === "approve";
+
+    // Re-read the underlying order under a lock before approving a PO/subcontract.
+    // If it was cancelled (or otherwise moved off "awaiting approval") while this
+    // request sat in the queue, fail loudly rather than stamping the approval
+    // "approved" for a release that releasePurchaseOrder will then no-op — which
+    // would leave a misleading audit trail. The lock also serialises against a
+    // concurrent cancelPurchaseOrder (which marks this approval rejected).
+    if (approved && (approval.type === "purchase_order" || approval.type === "subcontract")) {
+      const [po] = await tx
+        .select({ status: t.purchaseOrders.status })
+        .from(t.purchaseOrders)
+        .where(eq(t.purchaseOrders.id, approval.entityId))
+        .limit(1)
+        .for("update");
+      if (!po) return fail("The order behind this request no longer exists");
+      if (po.status !== "pending_approval")
+        return fail("This order is no longer awaiting approval — it may have been cancelled");
+    }
 
     await tx
       .update(t.approvals)

@@ -137,6 +137,86 @@ export async function setUserActive(
   });
 }
 
+const updateUserSchema = z.object({
+  userId: z.string().uuid(),
+  fullName: z.string().min(2, "Full name is required"),
+  email: z.string().email("Enter a valid email"),
+  title: z.string().optional(),
+  phone: z.string().optional(),
+});
+
+export async function updateUser(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(updateUserSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "admin.manage")) return fail("You don't have permission");
+    try {
+      const [u] = await tx
+        .update(t.users)
+        .set({
+          fullName: d.fullName,
+          email: d.email.toLowerCase(),
+          title: d.title ?? null,
+          phone: d.phone ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(t.users.id, d.userId))
+        .returning();
+      if (!u) return fail("User not found");
+      await audit(tx, ctx, {
+        action: "user.update",
+        entityType: "user",
+        entityId: u.id,
+        summary: `Updated ${u.fullName}'s profile`,
+      });
+      revalidatePath("/admin");
+      return ok("User updated");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/unique|duplicate|users_email_unique/i.test(message))
+        return fail("Email already in use", { email: "Email already in use" });
+      throw err;
+    }
+  });
+}
+
+const resetPasswordSchema = z.object({
+  userId: z.string().uuid(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export async function resetUserPassword(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(resetPasswordSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "admin.manage")) return fail("You don't have permission");
+    const passwordHash = await hashPassword(d.password);
+    const [u] = await tx
+      .update(t.users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(t.users.id, d.userId))
+      .returning();
+    if (!u) return fail("User not found");
+    await audit(tx, ctx, {
+      action: "user.password.reset",
+      entityType: "user",
+      entityId: u.id,
+      summary: `Reset password for ${u.fullName}`,
+      risk: "warning",
+    });
+    revalidatePath("/admin");
+    return ok(`Password reset for ${u.fullName} — share the new temporary password with them`);
+  });
+}
+
 /* ─────────────────────────── company settings ─────────────────────────── */
 
 const companySchema = z.object({

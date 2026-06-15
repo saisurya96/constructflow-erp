@@ -20,7 +20,9 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /* ────────────────────────────── enums ────────────────────────────── */
 
@@ -103,7 +105,12 @@ export const poStatus = pgEnum("po_status", [
   "cancelled",
 ]);
 
-export const grnStatus = pgEnum("grn_status", ["draft", "posted", "rejected"]);
+export const grnStatus = pgEnum("grn_status", [
+  "draft",
+  "posted",
+  "rejected",
+  "reversed",
+]);
 
 export const grnLineCondition = pgEnum("grn_line_condition", [
   "good",
@@ -582,7 +589,14 @@ export const purchaseOrderLines = pgTable("purchase_order_lines", {
   lineTotal: money("line_total").notNull().default("0"),
   receivedQty: qty("received_qty").notNull().default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
-});
+}, (t) => [
+  check("po_line_qty_pos", sql`${t.quantity} > 0`),
+  check("po_line_unit_price_nonneg", sql`${t.unitPrice} >= 0`),
+  check(
+    "po_line_received_range",
+    sql`${t.receivedQty} >= 0 AND ${t.receivedQty} <= ${t.quantity}`,
+  ),
+]);
 
 /* ────────────────────────── inventory / stores ─────────────────────── */
 
@@ -638,7 +652,13 @@ export const goodsReceiptLines = pgTable("goods_receipt_lines", {
   condition: grnLineCondition("condition").notNull().default("good"),
   unitCost: money("unit_cost").notNull().default("0"),
   notes: text("notes"),
-});
+}, (t) => [
+  check(
+    "grn_line_qty_nonneg",
+    sql`${t.receivedQty} >= 0 AND ${t.acceptedQty} >= 0 AND ${t.rejectedQty} >= 0`,
+  ),
+  check("grn_line_unit_cost_nonneg", sql`${t.unitCost} >= 0`),
+]);
 
 /** Current stock position per (warehouse, item). */
 export const inventoryItems = pgTable(
@@ -658,7 +678,12 @@ export const inventoryItems = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("inventory_item_unique").on(t.warehouseId, t.itemName)],
+  (t) => [
+    uniqueIndex("inventory_item_unique").on(t.warehouseId, t.itemName),
+    check("inv_item_qty_nonneg", sql`${t.quantity} >= 0`),
+    check("inv_item_alloc_nonneg", sql`${t.allocatedQty} >= 0`),
+    check("inv_item_cost_nonneg", sql`${t.unitCost} >= 0`),
+  ],
 );
 
 /** Immutable stock ledger — one row per physical movement. */
@@ -708,7 +733,10 @@ export const inventoryAllocations = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("allocations_project_idx").on(t.projectId)],
+  (t) => [
+    index("allocations_project_idx").on(t.projectId),
+    check("alloc_qty_pos", sql`${t.quantity} > 0`),
+  ],
 );
 
 /* ─────────────────────────── change orders ─────────────────────────── */
@@ -846,19 +874,26 @@ export const approvals = pgTable(
 
 /* ──────────────────────── attachments + audit ──────────────────────── */
 
-export const attachments = pgTable("attachments", {
-  id: id(),
-  companyId: companyId(),
-  entityType: text("entity_type").notNull(),
-  entityId: uuid("entity_id").notNull(),
-  fileName: text("file_name").notNull(),
-  mimeType: text("mime_type"),
-  sizeBytes: integer("size_bytes"),
-  storageKey: text("storage_key").notNull(),
-  description: text("description"),
-  uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
-  createdAt: createdAt(),
-});
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: id(),
+    companyId: companyId(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    storageKey: text("storage_key").notNull(),
+    // Inline file bytes (base64). Local-first: keeps files transactional and
+    // RLS-protected in Postgres rather than on a separate object store.
+    data: text("data"),
+    description: text("description"),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attachments_entity_idx").on(t.entityType, t.entityId)],
+);
 
 export const auditEvents = pgTable(
   "audit_events",

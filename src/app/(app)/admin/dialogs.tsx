@@ -3,7 +3,7 @@
 import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { UserPlus, Save } from "lucide-react";
+import { UserPlus, Save, Pencil, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +12,14 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { Field, NativeSelect } from "@/components/app/field";
 import { ROLE_LABELS } from "@/lib/rbac";
 import type { UserRole } from "@/db/schema";
-import { createUser, updateUserRole, setUserActive, updateCompany } from "./actions";
+import {
+  createUser,
+  updateUser,
+  updateUserRole,
+  setUserActive,
+  resetUserPassword,
+  updateCompany,
+} from "./actions";
 
 const ROLE_OPTIONS: UserRole[] = ["admin", "pm", "buyer", "storekeeper", "finance"];
 
@@ -108,7 +115,22 @@ export function RoleControl({
         name="role"
         defaultValue={role}
         className="h-8 w-44 text-xs"
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
+        onChange={(e) => {
+          const next = e.currentTarget.value as UserRole;
+          // Confirm any change that grants or revokes full Administrator access.
+          if (
+            (next === "admin" || role === "admin") &&
+            !window.confirm(
+              next === "admin"
+                ? "Grant full Administrator access to this user?"
+                : "Remove this user's Administrator access?",
+            )
+          ) {
+            e.currentTarget.value = role;
+            return;
+          }
+          e.currentTarget.form?.requestSubmit();
+        }}
       >
         {ROLE_OPTIONS.map((r) => (
           <option key={r} value={r}>
@@ -117,6 +139,76 @@ export function RoleControl({
         ))}
       </NativeSelect>
     </form>
+  );
+}
+
+export function EditUserDialog({
+  user,
+}: {
+  user: { id: string; fullName: string; email: string; title: string | null; phone: string | null };
+}) {
+  return (
+    <FormDialog
+      title="Edit team member"
+      action={updateUser}
+      submitLabel="Save"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="userId" value={user.id} />
+          <Field label="Full name" htmlFor="fullName" required error={errors.fullName}>
+            <Input id="fullName" name="fullName" required defaultValue={user.fullName} />
+          </Field>
+          <Field label="Email" htmlFor="email" required error={errors.email}>
+            <Input id="email" name="email" type="email" required defaultValue={user.email} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Job title" htmlFor="title" error={errors.title}>
+              <Input id="title" name="title" defaultValue={user.title ?? ""} placeholder="Site Engineer" />
+            </Field>
+            <Field label="Phone" htmlFor="phone" error={errors.phone}>
+              <Input id="phone" name="phone" defaultValue={user.phone ?? ""} placeholder="+971…" />
+            </Field>
+          </div>
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function ResetPasswordDialog({
+  userId,
+  userName,
+}: {
+  userId: string;
+  userName: string;
+}) {
+  return (
+    <FormDialog
+      title={`Reset password — ${userName}`}
+      description="Set a new temporary password and share it with the user. They sign in with it immediately."
+      action={resetUserPassword}
+      submitLabel="Reset password"
+      trigger={
+        <Button size="xs" variant="ghost">
+          <KeyRound className="size-3.5" /> Reset password
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="userId" value={userId} />
+          <Field label="New temporary password" htmlFor="password" required error={errors.password} hint="Minimum 8 characters.">
+            <Input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" />
+          </Field>
+        </>
+      )}
+    </FormDialog>
   );
 }
 

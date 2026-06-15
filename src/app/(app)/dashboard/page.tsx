@@ -1,11 +1,23 @@
-import { CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import { requireUser, db } from "@/lib/auth/context";
 import { ROLE_LABELS, ROLE_TAGLINES } from "@/lib/rbac";
+import type { UserRole } from "@/db/schema";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { ActionItemCard } from "@/components/app/action-item-card";
 import { EmptyState } from "@/components/app/empty-state";
+import { Button } from "@/components/ui/button";
+
+/** Where each role goes to start work — surfaced on an empty dashboard. */
+const PRIMARY_DESTINATION: Record<UserRole, { href: string; label: string }> = {
+  admin: { href: "/projects", label: "Set up a project" },
+  pm: { href: "/projects", label: "Set up a project" },
+  buyer: { href: "/requirements", label: "Open the sourcing inbox" },
+  storekeeper: { href: "/deliveries", label: "Go to deliveries" },
+  finance: { href: "/billing", label: "Go to billing" },
+};
 import {
   pmDashboard,
   buyerDashboard,
@@ -64,7 +76,12 @@ export default async function DashboardPage() {
           <EmptyState
             icon={<CheckCircle2 className="size-5" />}
             title="You're all caught up"
-            description="Nothing needs your attention right now. New items will appear here as work flows through."
+            description="Nothing needs your attention right now. New items appear here as work flows through — jump in to get started."
+            action={
+              <Button size="sm" render={<Link href={PRIMARY_DESTINATION[user.role].href} />}>
+                {PRIMARY_DESTINATION[user.role].label} <ArrowRight className="size-4" />
+              </Button>
+            }
           />
         ) : (
           view.queue.map((item, i) => (

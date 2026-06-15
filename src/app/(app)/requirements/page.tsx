@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { ClipboardList, FileText } from "lucide-react";
 import { requireUser, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
-import { num } from "@/lib/money";
+import { Trash2 } from "lucide-react";
+import { num, formatMoney } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { REQUIREMENT_STATUS_TONE } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
@@ -16,7 +17,7 @@ import { CoverageBar } from "@/components/app/meters";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { Button } from "@/components/ui/button";
-import { updateRequirementStatus } from "./actions";
+import { updateRequirementStatus, cancelRequirement } from "./actions";
 
 const INBOUND = ["approved", "released", "partially_received"] as const;
 
@@ -26,6 +27,8 @@ export default async function RequirementsPage() {
     redirect("/forbidden");
   }
   const isBuyer = can(user.role, "requirements.source");
+  const canRaise = can(user.role, "requirements.raise");
+  const showActions = isBuyer || canRaise;
 
   const data = await db(async (tx) => {
     const reqs = await tx
@@ -43,7 +46,8 @@ export default async function RequirementsPage() {
       })
       .from(t.projectRequirements)
       .innerJoin(t.projects, eq(t.projects.id, t.projectRequirements.projectId))
-      .orderBy(desc(t.projectRequirements.createdAt));
+      .orderBy(desc(t.projectRequirements.createdAt))
+      .limit(200);
 
     const allocs = await tx
       .select({
@@ -64,18 +68,29 @@ export default async function RequirementsPage() {
       .where(inArray(t.purchaseOrders.status, [...INBOUND]))
       .groupBy(t.purchaseOrderLines.requirementId);
 
-    return { reqs, allocs, inbound };
+    const received = await tx
+      .select({
+        reqId: t.purchaseOrderLines.requirementId,
+        q: sql<string>`coalesce(sum(${t.purchaseOrderLines.receivedQty}),0)`,
+      })
+      .from(t.purchaseOrderLines)
+      .groupBy(t.purchaseOrderLines.requirementId);
+
+    return { reqs, allocs, inbound, received };
   });
 
   const allocMap = new Map(data.allocs.map((a) => [a.reqId, num(a.q)]));
   const inboundMap = new Map(data.inbound.map((i) => [i.reqId, num(i.q)]));
+  const receivedMap = new Map(data.received.map((i) => [i.reqId, num(i.q)]));
 
   const rows = data.reqs.map((r) => {
     const required = num(r.quantity);
     const allocated = allocMap.get(r.id) ?? 0;
     const inbound = inboundMap.get(r.id) ?? 0;
-    const shortage = Math.max(0, required - allocated - inbound);
-    return { r, required, allocated, inbound, shortage };
+    const received = receivedMap.get(r.id) ?? 0;
+    const shortage = Math.max(0, required - allocated - received - inbound);
+    const estValue = required * num(r.estimatedUnitCost);
+    return { r, required, allocated, received, inbound, shortage, estValue };
   });
 
   const open = rows.filter((x) => !["fulfilled", "cancelled"].includes(x.r.status));
@@ -85,6 +100,7 @@ export default async function RequirementsPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Material requirements"
         title={isBuyer ? "Sourcing inbox" : "Requirements"}
         description={
           isBuyer
@@ -113,68 +129,89 @@ export default async function RequirementsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 text-right font-medium">Qty</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Est. value</th>
                   <th className="px-4 py-2.5 font-medium w-32">Coverage</th>
                   <th className="px-4 py-2.5 font-medium">Needed</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
-                  {isBuyer && <th className="px-4 py-2.5" />}
+                  {showActions && <th className="px-4 py-2.5" />}
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ r, required, allocated, inbound, shortage }) => (
-                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
-                    <td className="px-4 py-2.5">
-                      <span className="font-medium">{r.itemName}</span>
-                      {shortage > 0 && (
-                        <span className="block text-xs text-critical">
-                          short {shortage} {r.unit}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Link href={`/projects/${r.projectId}`} className="text-muted-foreground hover:underline">
-                        {r.projectCode}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular">
-                      {required} {r.unit}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <CoverageBar required={required} allocated={allocated} inbound={inbound} />
-                    </td>
-                    <td className="px-4 py-2.5">{formatDate(r.neededBy)}</td>
-                    <td className="px-4 py-2.5">
-                      <StatusPill status={r.status} tones={REQUIREMENT_STATUS_TONE} />
-                    </td>
-                    {isBuyer && (
-                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        {r.status === "submitted" && (
-                          <ActionButton
-                            action={updateRequirementStatus}
-                            fields={{ requirementId: r.id, status: "sourcing" }}
-                            variant="outline"
-                            size="xs"
-                          >
-                            Start sourcing
-                          </ActionButton>
-                        )}
-                        {(r.status === "submitted" || r.status === "sourcing") && (
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            className="ml-1"
-                            render={<Link href={`/rfqs/new?requirementId=${r.id}`} />}
-                          >
-                            <FileText className="size-3.5" /> RFQ
-                          </Button>
+                {rows.map(({ r, required, allocated, received, inbound, shortage, estValue }) => {
+                  const cancellable =
+                    r.status !== "cancelled" && r.status !== "fulfilled" && received === 0;
+                  return (
+                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
+                      <td className="px-4 py-2.5">
+                        <span className="font-medium">{r.itemName}</span>
+                        {shortage > 0 && (
+                          <span className="block text-xs text-critical">
+                            short {shortage} {r.unit}
+                          </span>
                         )}
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="px-4 py-2.5">
+                        <Link href={`/projects/${r.projectId}`} className="text-muted-foreground hover:underline">
+                          {r.projectCode}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular">
+                        {required} {r.unit}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular text-muted-foreground">
+                        {estValue > 0 ? formatMoney(estValue) : "—"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <CoverageBar required={required} allocated={allocated} received={received} inbound={inbound} />
+                      </td>
+                      <td className="px-4 py-2.5">{formatDate(r.neededBy)}</td>
+                      <td className="px-4 py-2.5">
+                        <StatusPill status={r.status} tones={REQUIREMENT_STATUS_TONE} />
+                      </td>
+                      {showActions && (
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          {isBuyer && r.status === "submitted" && (
+                            <ActionButton
+                              action={updateRequirementStatus}
+                              fields={{ requirementId: r.id, status: "sourcing" }}
+                              variant="outline"
+                              size="xs"
+                            >
+                              Start sourcing
+                            </ActionButton>
+                          )}
+                          {isBuyer && (r.status === "submitted" || r.status === "sourcing") && (
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              className="ml-1"
+                              render={<Link href={`/rfqs/new?requirementId=${r.id}`} />}
+                            >
+                              <FileText className="size-3.5" /> RFQ
+                            </Button>
+                          )}
+                          {cancellable && (
+                            <ActionButton
+                              action={cancelRequirement}
+                              fields={{ requirementId: r.id }}
+                              confirm={`Cancel requirement "${r.itemName}"?`}
+                              variant="ghost"
+                              size="icon-sm"
+                              className="ml-1"
+                              aria-label={`Cancel requirement ${r.itemName}`}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </ActionButton>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

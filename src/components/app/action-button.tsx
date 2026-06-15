@@ -18,6 +18,7 @@ export function ActionButton({
   variant,
   size,
   className,
+  "aria-label": ariaLabel,
 }: {
   action: (prev: ActionState, formData: FormData) => Promise<ActionState>;
   fields?: Record<string, string | number | undefined | null>;
@@ -26,6 +27,7 @@ export function ActionButton({
   variant?: React.ComponentProps<typeof SubmitButton>["variant"];
   size?: React.ComponentProps<typeof SubmitButton>["size"];
   className?: string;
+  "aria-label"?: string;
 }) {
   const [state, formAction] = useActionState(action, null);
   const router = useRouter();
@@ -53,7 +55,7 @@ export function ActionButton({
           <input key={k} type="hidden" name={k} value={String(v)} />
         ),
       )}
-      <SubmitButton variant={variant} size={size} className={className}>
+      <SubmitButton variant={variant} size={size} className={className} aria-label={ariaLabel}>
         {children}
       </SubmitButton>
     </form>

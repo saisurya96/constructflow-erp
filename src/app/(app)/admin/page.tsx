@@ -15,6 +15,8 @@ import {
   InviteUserDialog,
   RoleControl,
   ActiveControl,
+  EditUserDialog,
+  ResetPasswordDialog,
   CompanySettingsForm,
 } from "./dialogs";
 
@@ -43,6 +45,7 @@ export default async function AdminPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Administration"
         title="Administration"
         description="Manage your team, their access, and company-wide settings."
         actions={<InviteUserDialog />}
@@ -102,7 +105,7 @@ export default async function AdminPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">Member</th>
                       <th className="px-4 py-2.5 font-medium w-48">Role</th>
                       <th className="px-4 py-2.5 font-medium">Status</th>
@@ -151,12 +154,24 @@ export default async function AdminPage() {
                           <td className="px-4 py-2.5 text-muted-foreground">
                             {u.lastLoginAt ? fromNow(u.lastLoginAt) : "Never"}
                           </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <ActiveControl
-                              userId={u.id}
-                              active={u.isActive}
-                              disabled={isSelf}
-                            />
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-1">
+                              <EditUserDialog
+                                user={{
+                                  id: u.id,
+                                  fullName: u.fullName,
+                                  email: u.email,
+                                  title: u.title,
+                                  phone: u.phone,
+                                }}
+                              />
+                              <ResetPasswordDialog userId={u.id} userName={u.fullName} />
+                              <ActiveControl
+                                userId={u.id}
+                                active={u.isActive}
+                                disabled={isSelf}
+                              />
+                            </div>
                           </td>
                         </tr>
                       );

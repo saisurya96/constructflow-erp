@@ -5,8 +5,16 @@ const TONE_ACCENT: Record<BadgeTone, string> = {
   critical: "text-critical",
   warning: "text-warning-foreground",
   good: "text-good",
-  info: "text-info",
+  info: "text-foreground",
   neutral: "text-foreground",
+};
+
+const TONE_MARK: Record<BadgeTone, string> = {
+  critical: "bg-critical",
+  warning: "bg-warning",
+  good: "bg-good",
+  info: "bg-muted-foreground/40",
+  neutral: "bg-muted-foreground/40",
 };
 
 export function StatCard({
@@ -27,17 +35,25 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card p-4 shadow-xs flex flex-col gap-1",
+        "group relative flex flex-col gap-3 rounded-lg border bg-card p-4",
         className,
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="eyebrow flex items-center gap-1.5 text-muted-foreground">
+          {tone !== "neutral" && tone !== "info" && (
+            <span className={cn("size-1.5 rounded-[1px]", TONE_MARK[tone])} />
+          )}
           {label}
         </span>
-        {icon && <span className="text-muted-foreground">{icon}</span>}
+        {icon && <span className="text-muted-foreground/60">{icon}</span>}
       </div>
-      <div className={cn("text-2xl font-semibold tabular", TONE_ACCENT[tone])}>
+      <div
+        className={cn(
+          "font-display text-[1.85rem] font-semibold leading-none tracking-tight tabular",
+          TONE_ACCENT[tone],
+        )}
+      >
         {value}
       </div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}

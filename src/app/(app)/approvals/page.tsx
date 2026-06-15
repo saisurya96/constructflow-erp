@@ -1,6 +1,8 @@
-import { aliasedTable, desc, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { aliasedTable, asc, desc, eq, ne } from "drizzle-orm";
 import { BadgeCheck, Check, History } from "lucide-react";
-import { requireCapability, db } from "@/lib/auth/context";
+import { requireUser, db } from "@/lib/auth/context";
+import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
 import { num, formatMoney } from "@/lib/money";
 import { formatDateTime, fromNow, todayISO } from "@/lib/dates";
@@ -23,60 +25,75 @@ const APPROVAL_TYPE_TONE: Record<string, BadgeTone> = {
 };
 
 export default async function ApprovalsPage() {
-  await requireCapability("approvals.decide");
+  const user = await requireUser();
+  const canDecide = can(user.role, "approvals.decide");
+  // Deciders (finance/admin) act here; requesters (PM/buyer) get a read-only
+  // view so they can see the status and reason for their own submissions.
+  if (
+    !canDecide &&
+    !can(user.role, "requirements.raise") &&
+    !can(user.role, "procurement.manage")
+  ) {
+    redirect("/forbidden");
+  }
 
-  const data = await db(async (tx) => {
+  const { pending, decided } = await db(async (tx) => {
     const requester = aliasedTable(t.users, "requester");
     const decider = aliasedTable(t.users, "decider");
-
-    const rows = await tx
-      .select({
-        id: t.approvals.id,
-        type: t.approvals.type,
-        title: t.approvals.title,
-        amount: t.approvals.amount,
-        status: t.approvals.status,
-        projectId: t.approvals.projectId,
-        projectCode: t.projects.code,
-        projectName: t.projects.name,
-        requestedByName: requester.fullName,
-        decidedByName: decider.fullName,
-        decisionNote: t.approvals.decisionNote,
-        decidedAt: t.approvals.decidedAt,
-        createdAt: t.approvals.createdAt,
-      })
+    const cols = {
+      id: t.approvals.id,
+      type: t.approvals.type,
+      title: t.approvals.title,
+      amount: t.approvals.amount,
+      status: t.approvals.status,
+      projectId: t.approvals.projectId,
+      projectCode: t.projects.code,
+      projectName: t.projects.name,
+      requestedByName: requester.fullName,
+      decidedByName: decider.fullName,
+      decisionNote: t.approvals.decisionNote,
+      decidedAt: t.approvals.decidedAt,
+      createdAt: t.approvals.createdAt,
+    };
+    // Pending: never capped, oldest first (so nothing silently drops off a
+    // recent-N window). Decided: a recent slice for context.
+    const pending = await tx
+      .select(cols)
       .from(t.approvals)
       .leftJoin(t.projects, eq(t.projects.id, t.approvals.projectId))
       .leftJoin(requester, eq(requester.id, t.approvals.requestedBy))
       .leftJoin(decider, eq(decider.id, t.approvals.decidedBy))
-      .orderBy(desc(t.approvals.createdAt));
-
-    return rows;
+      .where(eq(t.approvals.status, "pending"))
+      .orderBy(asc(t.approvals.createdAt));
+    const decided = await tx
+      .select(cols)
+      .from(t.approvals)
+      .leftJoin(t.projects, eq(t.projects.id, t.approvals.projectId))
+      .leftJoin(requester, eq(requester.id, t.approvals.requestedBy))
+      .leftJoin(decider, eq(decider.id, t.approvals.decidedBy))
+      .where(ne(t.approvals.status, "pending"))
+      .orderBy(desc(t.approvals.decidedAt))
+      .limit(50);
+    return { pending, decided };
   });
-
-  const pending = data.filter((a) => a.status === "pending");
-  const decided = data.filter((a) => a.status !== "pending").slice(0, 15);
 
   const pendingValue = pending.reduce((s, a) => s + num(a.amount), 0);
   const today = todayISO();
-  const approvedToday = data.filter(
-    (a) =>
-      a.status === "approved" &&
-      a.decidedAt &&
-      new Date(a.decidedAt).toISOString().slice(0, 10) === today,
-  ).length;
-  const rejectedToday = data.filter(
-    (a) =>
-      a.status === "rejected" &&
-      a.decidedAt &&
-      new Date(a.decidedAt).toISOString().slice(0, 10) === today,
-  ).length;
+  const isToday = (d: Date | null) =>
+    !!d && new Date(d).toISOString().slice(0, 10) === today;
+  const approvedToday = decided.filter((a) => a.status === "approved" && isToday(a.decidedAt)).length;
+  const rejectedToday = decided.filter((a) => a.status === "rejected" && isToday(a.decidedAt)).length;
 
   return (
     <div>
       <PageHeader
+        eyebrow="Authorisations"
         title="Approvals"
-        description="Authorize purchase orders, change orders and invoices that exceed the approval threshold."
+        description={
+          canDecide
+            ? "Authorize purchase orders and change orders that exceed the approval threshold."
+            : "Track the status of submissions awaiting authorisation."
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -113,14 +130,14 @@ export default async function ApprovalsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Request</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 text-right font-medium">Amount</th>
                   <th className="px-4 py-2.5 font-medium">Requested by</th>
                   <th className="px-4 py-2.5 font-medium">Age</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Decision</th>
+                  <th className="px-4 py-2.5 text-right font-medium">{canDecide ? "Decision" : "Status"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,15 +160,21 @@ export default async function ApprovalsPage() {
                       {fromNow(a.createdAt)}
                     </td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      <ActionButton
-                        action={decideApproval}
-                        fields={{ approvalId: a.id, decision: "approve" }}
-                        confirm={`Approve "${a.title}"? This will take effect immediately.`}
-                        size="xs"
-                      >
-                        <Check className="size-3.5" /> Approve
-                      </ActionButton>
-                      <RejectDialog approvalId={a.id} title={a.title} />
+                      {canDecide ? (
+                        <>
+                          <ActionButton
+                            action={decideApproval}
+                            fields={{ approvalId: a.id, decision: "approve" }}
+                            confirm={`Approve "${a.title}"? This will take effect immediately.`}
+                            size="xs"
+                          >
+                            <Check className="size-3.5" /> Approve
+                          </ActionButton>
+                          <RejectDialog approvalId={a.id} title={a.title} />
+                        </>
+                      ) : (
+                        <StatusPill status={a.status} tones={APPROVAL_STATUS_TONE} />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -174,7 +197,7 @@ export default async function ApprovalsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Request</th>
                   <th className="px-4 py-2.5 text-right font-medium">Amount</th>

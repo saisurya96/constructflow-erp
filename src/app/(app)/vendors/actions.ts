@@ -102,3 +102,29 @@ export async function updateVendor(
     return ok("Vendor updated");
   });
 }
+
+export async function setVendorActive(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const vendorId = String(formData.get("vendorId") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "vendors.manage")) return fail("You don't have permission");
+    const [vendor] = await tx
+      .update(t.vendors)
+      .set({ isActive: active, updatedAt: new Date() })
+      .where(eq(t.vendors.id, vendorId))
+      .returning();
+    if (!vendor) return fail("Vendor not found");
+    await audit(tx, ctx, {
+      action: "vendor.active",
+      entityType: "vendor",
+      entityId: vendor.id,
+      summary: `${active ? "Reactivated" : "Deactivated"} vendor ${vendor.name}`,
+    });
+    revalidatePath("/vendors");
+    revalidatePath(`/vendors/${vendorId}`);
+    return ok(active ? "Vendor reactivated" : "Vendor deactivated");
+  });
+}

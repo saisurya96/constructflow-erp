@@ -54,6 +54,7 @@ export default async function CostingPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Cost control"
         title="Job Costing"
         description="Budget vs committed vs actual across the portfolio — forecast, variance and margin per job."
       />
@@ -70,7 +71,11 @@ export default async function CostingPage() {
           label="Forecast"
           value={formatMoney(totals.forecast, "AED", { compact: true })}
           tone={totals.forecast > totals.budget * 1.03 ? "warning" : "good"}
-          sub={`${totals.forecast - totals.budget >= 0 ? "+" : ""}${formatMoney(totals.forecast - totals.budget, "AED", { compact: true })} vs budget`}
+          sub={
+            totals.forecast - totals.budget > 0
+              ? `+${formatMoney(totals.forecast - totals.budget, "AED", { compact: true })} over budget`
+              : "on budget"
+          }
         />
         <StatCard
           label="Total margin"
@@ -93,7 +98,7 @@ export default async function CostingPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 text-right font-medium">Budget</th>

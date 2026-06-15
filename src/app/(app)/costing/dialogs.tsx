@@ -37,11 +37,16 @@ export function PostCostDialog({
               <NativeSelect id="type" name="type" defaultValue="actual">
                 <option value="actual">Actual</option>
                 <option value="commitment">Commitment</option>
-                <option value="forecast">Forecast</option>
                 <option value="budget">Budget adjustment</option>
               </NativeSelect>
             </Field>
-            <Field label="Amount" htmlFor="amount" required error={errors.amount}>
+            <Field
+              label="Amount"
+              htmlFor="amount"
+              required
+              error={errors.amount}
+              hint="Use a negative amount to post a correction."
+            >
               <Input id="amount" name="amount" type="number" step="0.01" defaultValue="0" required />
             </Field>
           </div>

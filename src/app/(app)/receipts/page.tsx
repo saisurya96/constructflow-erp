@@ -9,17 +9,22 @@ import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
+import { ActionButton } from "@/components/app/action-button";
 import { Button } from "@/components/ui/button";
+import { can } from "@/lib/rbac";
+import { reverseGoodsReceipt } from "@/app/(app)/inventory/actions";
 import type { BadgeTone } from "@/lib/constants";
 
 const GRN_TONE: Record<string, BadgeTone> = {
   draft: "neutral",
   posted: "good",
   rejected: "critical",
+  reversed: "warning",
 };
 
 export default async function ReceiptsPage() {
-  await requireCapability("inventory.manage");
+  const user = await requireCapability("inventory.manage");
+  const canReverse = can(user.role, "inventory.manage");
 
   const data = await db(async (tx) => {
     const grns = await tx
@@ -50,6 +55,7 @@ export default async function ReceiptsPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Goods receipts"
         title="Goods receipts"
         description="Receipt history — each posting books stock and recognises actual cost."
         actions={
@@ -88,7 +94,7 @@ export default async function ReceiptsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">GRN</th>
                   <th className="px-4 py-2.5 font-medium">Order</th>
                   <th className="px-4 py-2.5 font-medium">Vendor</th>
@@ -96,13 +102,16 @@ export default async function ReceiptsPage() {
                   <th className="px-4 py-2.5 font-medium">Delivery note</th>
                   <th className="px-4 py-2.5 font-medium">Received</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
+                  {canReverse && <th className="px-4 py-2.5 text-right font-medium">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {data.grns.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-muted/40">
                     <td className="px-4 py-2.5">
-                      <span className="font-medium">{g.number}</span>
+                      <Link href={`/receipts/${g.id}`} className="font-medium hover:underline">
+                        {g.number}
+                      </Link>
                       {g.receiverName && (
                         <span className="block text-xs text-muted-foreground">by {g.receiverName}</span>
                       )}
@@ -115,6 +124,21 @@ export default async function ReceiptsPage() {
                     <td className="px-4 py-2.5">
                       <StatusBadge tone={GRN_TONE[g.status] ?? "neutral"}>{g.status}</StatusBadge>
                     </td>
+                    {canReverse && (
+                      <td className="px-4 py-2.5 text-right">
+                        {g.status === "posted" && (
+                          <ActionButton
+                            action={reverseGoodsReceipt}
+                            fields={{ grnId: g.id }}
+                            variant="outline"
+                            size="xs"
+                            confirm="Reverse this goods receipt? Stock will be pulled back out, the actual cost removed and the commitment reinstated. This only works while the received goods are still on hand."
+                          >
+                            Reverse
+                          </ActionButton>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

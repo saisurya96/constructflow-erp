@@ -75,7 +75,7 @@ async function main() {
       .returning();
     users[a.role] = u.id;
   }
-  const { admin, pm, buyer, storekeeper, finance } = users;
+  const { pm, buyer, storekeeper, finance } = users;
 
   /* ─────────────────────────────── vendors ─────────────────────────────── */
   console.log("→ vendors…");
@@ -508,7 +508,7 @@ async function main() {
     lineTotal: m(rmSub),
     sortOrder: 0,
   });
-  const [appPo2] = await db
+  await db
     .insert(s.approvals)
     .values({
       companyId: co.id,
@@ -651,8 +651,10 @@ async function main() {
     type: "change_order",
     entityType: "change_order",
     entityId: co1.id,
-    title: "CO-0001 — Additional basement waterproofing",
-    amount: m(155_000),
+    // Approval amount is the COST (budget) impact that actually posts; revenue
+    // is carried in the title so the approver sees the margin effect.
+    title: "CO-0001 — Additional basement waterproofing · revenue AED 155,000",
+    amount: m(120_000),
     projectId: p1,
     status: "pending",
     requestedBy: pm,

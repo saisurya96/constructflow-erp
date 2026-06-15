@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq } from "drizzle-orm";
-import { CalendarClock, FolderKanban, Flag } from "lucide-react";
+import { CalendarClock, FolderKanban, Flag, Printer } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
 import { num, formatMoney } from "@/lib/money";
@@ -14,8 +14,10 @@ import { SectionCard } from "@/components/app/section-card";
 import { StatusPill, StatusBadge } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
-import { RecordPaymentDialog } from "../dialogs";
-import { sendInvoice, voidInvoice } from "../actions";
+import { AttachmentsPanel } from "@/components/app/attachments-panel";
+import { Button } from "@/components/ui/button";
+import { RecordPaymentDialog, EditInvoiceDialog } from "../dialogs";
+import { sendInvoice, voidInvoice, reversePayment, deleteInvoice } from "../actions";
 
 export default async function InvoiceDetailPage({
   params,
@@ -60,6 +62,7 @@ export default async function InvoiceDetailPage({
         id: t.invoiceLines.id,
         description: t.invoiceLines.description,
         amount: t.invoiceLines.amount,
+        wbsId: t.invoiceLines.wbsId,
         wbsCode: t.wbsCodes.code,
         wbsName: t.wbsCodes.name,
       })
@@ -67,6 +70,14 @@ export default async function InvoiceDetailPage({
       .leftJoin(t.wbsCodes, eq(t.wbsCodes.id, t.invoiceLines.wbsId))
       .where(eq(t.invoiceLines.invoiceId, id))
       .orderBy(asc(t.invoiceLines.sortOrder));
+
+    // Cost codes for the invoice's project — for the draft line editor.
+    const wbs = await tx
+      .select({ id: t.wbsCodes.id, code: t.wbsCodes.code, name: t.wbsCodes.name })
+      .from(t.wbsCodes)
+      .where(eq(t.wbsCodes.projectId, invoice.projectId))
+      .orderBy(asc(t.wbsCodes.sortOrder), asc(t.wbsCodes.code));
+    const wbsOptions = wbs.map((w) => ({ id: w.id, label: `${w.code} — ${w.name}` }));
 
     const payments = await tx
       .select({
@@ -92,11 +103,11 @@ export default async function InvoiceDetailPage({
       milestoneName = ms?.name ?? null;
     }
 
-    return { invoice, lines, payments, milestoneName };
+    return { invoice, lines, payments, milestoneName, wbsOptions };
   });
 
   if (!result) notFound();
-  const { invoice, lines, payments, milestoneName } = result;
+  const { invoice, lines, payments, milestoneName, wbsOptions } = result;
 
   const total = num(invoice.totalAmount);
   const paid = num(invoice.amountPaid);
@@ -115,6 +126,7 @@ export default async function InvoiceDetailPage({
   return (
     <div>
       <PageHeader
+        eyebrow="Invoice"
         title={invoice.number}
         description={
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -143,10 +155,44 @@ export default async function InvoiceDetailPage({
         actions={
           <div className="flex items-center gap-2">
             <StatusPill status={invoice.status} tones={INVOICE_STATUS_TONE} />
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href={`/print/invoice/${invoice.id}`} target="_blank" />}
+            >
+              <Printer className="size-4" /> PDF
+            </Button>
             {canSend && (
-              <ActionButton action={sendInvoice} fields={{ invoiceId: invoice.id }} size="sm">
-                Send
-              </ActionButton>
+              <>
+                <EditInvoiceDialog
+                  invoiceId={invoice.id}
+                  type={invoice.type}
+                  wbsOptions={wbsOptions}
+                  defaults={{
+                    title: invoice.title,
+                    progressPercent: invoice.progressPercent,
+                    issueDate: invoice.issueDate,
+                    dueDate: invoice.dueDate,
+                  }}
+                  lines={lines.map((l) => ({
+                    description: l.description,
+                    amount: String(Number(l.amount)),
+                    wbsId: l.wbsId ?? "",
+                  }))}
+                />
+                <ActionButton action={sendInvoice} fields={{ invoiceId: invoice.id }} size="sm">
+                  Send
+                </ActionButton>
+                <ActionButton
+                  action={deleteInvoice}
+                  fields={{ invoiceId: invoice.id }}
+                  variant="outline"
+                  size="sm"
+                  confirm="Delete this draft invoice? This permanently removes it."
+                >
+                  Delete
+                </ActionButton>
+              </>
             )}
             {canPay && (
               <RecordPaymentDialog invoiceId={invoice.id} outstanding={outstanding} />
@@ -195,7 +241,7 @@ export default async function InvoiceDetailPage({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">Description</th>
                       <th className="px-4 py-2.5 font-medium">Cost code</th>
                       <th className="px-4 py-2.5 text-right font-medium">Amount</th>
@@ -281,12 +327,29 @@ export default async function InvoiceDetailPage({
                       <p className="text-xs text-muted-foreground">by {p.recordedByName}</p>
                     )}
                   </div>
-                  <StatusBadge tone="good">Received</StatusBadge>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <StatusBadge tone="good">Received</StatusBadge>
+                    {invoice.status !== "void" && (
+                      <ActionButton
+                        action={reversePayment}
+                        fields={{ paymentId: p.id, invoiceId: invoice.id }}
+                        confirm={`Reverse this ${formatMoney(p.amount)} payment?`}
+                        variant="ghost"
+                        size="xs"
+                      >
+                        Reverse
+                      </ActionButton>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </SectionCard>
+      </div>
+
+      <div className="mt-4">
+        <AttachmentsPanel entityType="invoice" entityId={invoice.id} />
       </div>
     </div>
   );

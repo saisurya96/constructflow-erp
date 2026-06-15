@@ -36,7 +36,8 @@ export default async function DeliveriesPage() {
       .leftJoin(t.vendors, eq(t.vendors.id, t.purchaseOrders.vendorId))
       .leftJoin(t.projects, eq(t.projects.id, t.purchaseOrders.projectId))
       .where(inArray(t.purchaseOrders.status, [...OPEN_STATUSES]))
-      .orderBy(asc(t.purchaseOrders.expectedDate));
+      .orderBy(asc(t.purchaseOrders.expectedDate))
+      .limit(200);
 
     const ids = pos.map((p) => p.id);
     const lineAgg = ids.length
@@ -73,6 +74,7 @@ export default async function DeliveriesPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Logistics"
         title="Expected deliveries"
         description="Released orders awaiting goods receipt. Receive to book stock and recognise cost."
       />
@@ -97,7 +99,7 @@ export default async function DeliveriesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
+                <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Order</th>
                   <th className="px-4 py-2.5 font-medium">Vendor</th>
                   <th className="px-4 py-2.5 font-medium">Project</th>

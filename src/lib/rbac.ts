@@ -111,6 +111,7 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
     "rfqs",
     "orders",
     "vendors",
+    "deliveries",
     "receipts",
     "inventory",
     "allocations",
@@ -121,7 +122,7 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
     "admin",
   ],
   pm: ["dashboard", "projects", "requirements", "approvals"],
-  buyer: ["dashboard", "requirements", "rfqs", "orders", "vendors"],
+  buyer: ["dashboard", "requirements", "rfqs", "orders", "vendors", "approvals"],
   storekeeper: ["dashboard", "deliveries", "receipts", "inventory", "allocations"],
   finance: ["dashboard", "projects", "costing", "billing", "approvals", "audit"],
 };
