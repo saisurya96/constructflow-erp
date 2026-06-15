@@ -27,6 +27,7 @@ export default async function OrderDetailPage({
 }) {
   const { id } = await params;
   const user = await requireCapability("procurement.manage");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [po] = await tx
@@ -204,6 +205,7 @@ export default async function OrderDetailPage({
                       wbsId: l.wbsId,
                     })),
                   }}
+                  currency={currency}
                 />
                 <ActionButton action={submitPurchaseOrder} fields={{ poId: po.id }} size="sm">
                   Submit
@@ -258,11 +260,11 @@ export default async function OrderDetailPage({
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Subtotal" value={formatMoney(po.subtotal, "AED", { compact: true })} />
-        <StatCard label="VAT" value={formatMoney(po.taxAmount, "AED", { compact: true })} />
+        <StatCard label="Subtotal" value={formatMoney(po.subtotal, currency, { compact: true })} />
+        <StatCard label="VAT" value={formatMoney(po.taxAmount, currency, { compact: true })} />
         <StatCard
           label="Total"
-          value={formatMoney(po.totalAmount, "AED", { compact: true })}
+          value={formatMoney(po.totalAmount, currency, { compact: true })}
           tone="info"
         />
         <StatCard
@@ -318,8 +320,8 @@ export default async function OrderDetailPage({
                       <td className="px-4 py-2.5 text-right tabular">
                         {q} {l.unit}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.unitPrice)}</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.lineTotal)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.unitPrice, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.lineTotal, currency)}</td>
                       <td className="px-4 py-2.5">
                         <ProgressMeter
                           value={pct}
@@ -339,7 +341,7 @@ export default async function OrderDetailPage({
                     Subtotal
                   </td>
                   <td className="px-4 py-2.5 text-right font-medium tabular">
-                    {formatMoney(po.subtotal)}
+                    {formatMoney(po.subtotal, currency)}
                   </td>
                   <td />
                 </tr>
@@ -347,7 +349,7 @@ export default async function OrderDetailPage({
                   <td className="px-4 py-1.5" colSpan={3}>
                     VAT
                   </td>
-                  <td className="px-4 py-1.5 text-right tabular">{formatMoney(po.taxAmount)}</td>
+                  <td className="px-4 py-1.5 text-right tabular">{formatMoney(po.taxAmount, currency)}</td>
                   <td />
                 </tr>
                 <tr className="border-t text-sm">
@@ -355,7 +357,7 @@ export default async function OrderDetailPage({
                     Total
                   </td>
                   <td className="px-4 py-2.5 text-right font-semibold tabular">
-                    {formatMoney(po.totalAmount)}
+                    {formatMoney(po.totalAmount, currency)}
                   </td>
                   <td />
                 </tr>

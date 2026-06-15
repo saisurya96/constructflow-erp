@@ -104,17 +104,20 @@ export async function createInvoice(
     const total = subtotal + taxAmount;
 
     // Over-billing guard: cumulative non-void invoicing can't exceed the
-    // contract value. Raising the contract (or a change order) lifts the ceiling.
+    // contract value. We compare NET (ex-VAT) amounts on both sides — contract
+    // value is the agreed net price, and VAT is a pass-through tax added on top,
+    // so it must not eat into the contract ceiling. Raising the contract (or a
+    // change order) lifts the ceiling.
     const contractValue = num(project.contractValue);
     if (contractValue > 0) {
       const [billedRow] = await tx
-        .select({ b: sql<string>`coalesce(sum(${t.invoices.totalAmount}), 0)` })
+        .select({ b: sql<string>`coalesce(sum(${t.invoices.subtotal}), 0)` })
         .from(t.invoices)
         .where(and(eq(t.invoices.projectId, d.projectId), ne(t.invoices.status, "void")));
-      const billed = num(billedRow?.b);
-      if (billed + total > contractValue + 0.005)
+      const billedNet = num(billedRow?.b);
+      if (billedNet + subtotal > contractValue + 0.005)
         return fail(
-          `This invoice would bring billing to ${money(billed + total)} against a contract of ${money(contractValue)} (${money(contractValue - billed)} left to bill). Raise the contract value or a change order first.`,
+          `This invoice's net (pre-VAT) value would bring billing to ${money(billedNet + subtotal)} against a contract of ${money(contractValue)} — only ${money(contractValue - billedNet)} of net value is left to bill. (VAT is added on top and doesn't count toward the contract.) Raise the contract value or a change order first.`,
         );
     }
 
@@ -459,8 +462,9 @@ export async function editInvoice(
         .limit(1);
       const contractValue = num(proj?.contractValue);
       if (contractValue > 0) {
+        // Net (ex-VAT) comparison, consistent with createInvoice.
         const [billedRow] = await tx
-          .select({ b: sql<string>`coalesce(sum(${t.invoices.totalAmount}), 0)` })
+          .select({ b: sql<string>`coalesce(sum(${t.invoices.subtotal}), 0)` })
           .from(t.invoices)
           .where(
             and(
@@ -469,8 +473,10 @@ export async function editInvoice(
               ne(t.invoices.id, inv.id),
             ),
           );
-        if (num(billedRow?.b) + total > contractValue + 0.005)
-          return fail(`This would exceed the contract value of ${money(contractValue)}.`);
+        if (num(billedRow?.b) + subtotal > contractValue + 0.005)
+          return fail(
+            `This invoice's net (pre-VAT) value would exceed the contract value of ${money(contractValue)}. VAT is added on top and doesn't count toward the contract.`,
+          );
       }
     }
 

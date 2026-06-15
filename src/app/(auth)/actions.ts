@@ -5,9 +5,10 @@ import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { authDb } from "@/db/client";
-import { companies, users } from "@/db/schema";
+import { companies, users, warehouses, auditEvents } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createSession, destroySession } from "@/lib/auth/session";
+import { localeForCountry, CURRENCY_OPTIONS } from "@/lib/constants";
 import { parseForm, fail, type ActionState } from "@/lib/forms";
 
 const signupSchema = z.object({
@@ -15,6 +16,8 @@ const signupSchema = z.object({
   fullName: z.string().min(2, "Your name is required"),
   email: z.string().email("Enter a valid email"),
   password: z.string().min(8, "Use at least 8 characters"),
+  country: z.string().min(2).default("AE"),
+  currencyCode: z.enum(CURRENCY_OPTIONS).optional(),
 });
 
 const loginSchema = z.object({
@@ -38,7 +41,7 @@ export async function signupAction(
 ): Promise<ActionState> {
   const parsed = parseForm(signupSchema, formData);
   if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
-  const { companyName, fullName, email, password } = parsed.data;
+  const { companyName, fullName, email, password, country } = parsed.data;
 
   const existing = await authDb
     .select({ id: users.id })
@@ -60,9 +63,21 @@ export async function signupAction(
     .limit(1);
   if (taken.length) slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
 
+  // Locale comes from the chosen country (currency + headline VAT), with the
+  // currency overridable. No silent UAE default — all of this is editable later
+  // under Admin → Company settings.
+  const locale = localeForCountry(country);
+  const currencyCode = parsed.data.currencyCode ?? locale.currency;
+
   const [company] = await authDb
     .insert(companies)
-    .values({ name: companyName, slug })
+    .values({
+      name: companyName,
+      slug,
+      country: locale.code,
+      currencyCode,
+      vatRate: locale.vat.toFixed(2),
+    })
     .returning({ id: companies.id });
 
   const [user] = await authDb
@@ -76,6 +91,49 @@ export async function signupAction(
       title: "Administrator",
     })
     .returning({ id: users.id });
+
+  // First-run setup: every firm needs at least one stores location to receive
+  // goods against — provision one so the first goods-receipt isn't a dead end.
+  await authDb.insert(warehouses).values({
+    companyId: company.id,
+    name: "Main Store",
+    code: "WH-01",
+    isActive: true,
+  });
+
+  // Seed the audit trail from the very first events (company + admin + store),
+  // so the "complete audit trail" promise holds from minute zero.
+  await authDb.insert(auditEvents).values([
+    {
+      companyId: company.id,
+      actorId: user.id,
+      actorName: fullName,
+      action: "company.create",
+      entityType: "company",
+      entityId: company.id,
+      summary: `Created company ${companyName} (${locale.code} · ${currencyCode})`,
+      risk: "good",
+    },
+    {
+      companyId: company.id,
+      actorId: user.id,
+      actorName: fullName,
+      action: "user.create",
+      entityType: "user",
+      entityId: user.id,
+      summary: `Provisioned founding administrator ${fullName}`,
+      risk: "neutral",
+    },
+    {
+      companyId: company.id,
+      actorId: user.id,
+      actorName: fullName,
+      action: "warehouse.create",
+      entityType: "warehouse",
+      summary: "Provisioned default store “Main Store” (WH-01)",
+      risk: "neutral",
+    },
+  ]);
 
   const ua = (await headers()).get("user-agent");
   await createSession(user.id, company.id, ua);

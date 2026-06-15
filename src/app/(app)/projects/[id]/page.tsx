@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { CalendarClock, MapPin, User2, AlertTriangle, Trash2 } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
@@ -10,7 +10,6 @@ import { daysUntil } from "@/lib/severity";
 import { getProjectCost, getRequirementCoverage } from "@/lib/queries";
 import {
   PROJECT_STATUS_TONE,
-  TASK_STATUS_TONE,
   REQUIREMENT_STATUS_TONE,
   CHANGE_ORDER_STATUS_TONE,
 } from "@/lib/constants";
@@ -18,14 +17,14 @@ import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge, StatusPill } from "@/components/app/status-badge";
-import { ProgressMeter, CoverageBar } from "@/components/app/meters";
+import { CoverageBar } from "@/components/app/meters";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { AttachmentsPanel } from "@/components/app/attachments-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkViews } from "../work-views";
 import {
   AddTaskDialog,
-  UpdateTaskDialog,
   AddMilestoneDialog,
   EditMilestoneDialog,
   AddWbsDialog,
@@ -40,7 +39,6 @@ import { cancelRequirement } from "../../requirements/actions";
 import {
   reachMilestone,
   submitChangeOrder,
-  deleteTask,
   deleteMilestone,
   deleteWbsCode,
 } from "../actions";
@@ -52,6 +50,7 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const user = await requireCapability("projects.view");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [project] = await tx
@@ -71,7 +70,9 @@ export default async function ProjectDetailPage({
       .select({
         id: t.tasks.id,
         name: t.tasks.name,
+        description: t.tasks.description,
         status: t.tasks.status,
+        priority: t.tasks.priority,
         progress: t.tasks.progress,
         startDate: t.tasks.startDate,
         dueDate: t.tasks.dueDate,
@@ -85,6 +86,33 @@ export default async function ProjectDetailPage({
       .leftJoin(t.users, eq(t.users.id, t.tasks.assigneeId))
       .where(eq(t.tasks.projectId, id))
       .orderBy(asc(t.tasks.sortOrder), asc(t.tasks.createdAt));
+
+    const taskIds = tasks.map((tk) => tk.id);
+    const checklist = taskIds.length
+      ? await tx
+          .select({
+            id: t.taskChecklistItems.id,
+            taskId: t.taskChecklistItems.taskId,
+            title: t.taskChecklistItems.title,
+            isDone: t.taskChecklistItems.isDone,
+          })
+          .from(t.taskChecklistItems)
+          .where(inArray(t.taskChecklistItems.taskId, taskIds))
+          .orderBy(asc(t.taskChecklistItems.sortOrder), asc(t.taskChecklistItems.createdAt))
+      : [];
+    const comments = taskIds.length
+      ? await tx
+          .select({
+            id: t.taskComments.id,
+            taskId: t.taskComments.taskId,
+            authorName: t.taskComments.authorName,
+            body: t.taskComments.body,
+            createdAt: t.taskComments.createdAt,
+          })
+          .from(t.taskComments)
+          .where(inArray(t.taskComments.taskId, taskIds))
+          .orderBy(asc(t.taskComments.createdAt))
+      : [];
 
     const milestones = await tx
       .select()
@@ -127,21 +155,63 @@ export default async function ProjectDetailPage({
     const coverage = await getRequirementCoverage(tx, id);
     const cost = await getProjectCost(tx, id);
 
-    return { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed: num(billedRow?.b) };
+    return { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed: num(billedRow?.b) };
   });
 
   if (!result) notFound();
-  const { project, wbs, tasks, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed } = result;
+  const { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed } = result;
 
   const canManage = can(user.role, "projects.manage");
   const canSchedule = can(user.role, "schedule.manage");
   const canReq = can(user.role, "requirements.raise");
   const canCO = can(user.role, "changeorders.manage");
 
-  const wbsById = new Map(wbs.map((w) => [w.id, w]));
   const wbsOptions = wbs.map((w) => ({ id: w.id, label: `${w.code} — ${w.name}` }));
   const taskOptions = tasks.map((tk) => ({ id: tk.id, label: tk.name }));
   const memberOptions = members.map((mb) => ({ id: mb.id, label: mb.name }));
+
+  // Shape the schedule data for the Board / Table / Timeline work module.
+  const wbsLabelById = Object.fromEntries(wbs.map((w) => [w.id, `${w.code} — ${w.name}`]));
+  const checklistByTask: Record<string, { id: string; title: string; isDone: boolean }[]> = {};
+  const checklistCount: Record<string, { total: number; done: number }> = {};
+  for (const c of checklist) {
+    (checklistByTask[c.taskId] ??= []).push({ id: c.id, title: c.title, isDone: c.isDone });
+    const cnt = (checklistCount[c.taskId] ??= { total: 0, done: 0 });
+    cnt.total += 1;
+    if (c.isDone) cnt.done += 1;
+  }
+  const commentsByTask: Record<
+    string,
+    { id: string; authorName: string; body: string; createdAt: string }[]
+  > = {};
+  const commentCount: Record<string, number> = {};
+  for (const c of comments) {
+    (commentsByTask[c.taskId] ??= []).push({
+      id: c.id,
+      authorName: c.authorName,
+      body: c.body,
+      createdAt: new Date(c.createdAt).toISOString(),
+    });
+    commentCount[c.taskId] = (commentCount[c.taskId] ?? 0) + 1;
+  }
+  const boardTasks = tasks.map((tk) => ({
+    id: tk.id,
+    name: tk.name,
+    description: tk.description,
+    status: tk.status,
+    priority: tk.priority,
+    progress: tk.progress,
+    startDate: tk.startDate,
+    dueDate: tk.dueDate,
+    isBlocked: tk.isBlocked,
+    wbsId: tk.wbsId,
+    assigneeId: tk.assigneeId,
+    assigneeName: tk.assigneeName,
+    weight: tk.weight,
+    checklistTotal: checklistCount[tk.id]?.total ?? 0,
+    checklistDone: checklistCount[tk.id]?.done ?? 0,
+    commentCount: commentCount[tk.id] ?? 0,
+  }));
 
   const wbsCostMap = new Map<string, { committed: number; actual: number }>();
   for (const c of wbsCosts) {
@@ -212,16 +282,16 @@ export default async function ProjectDetailPage({
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="Budget" value={formatMoney(cost.budget, "AED", { compact: true })} />
-        <StatCard label="Committed" value={formatMoney(cost.committed, "AED", { compact: true })} tone="info" />
-        <StatCard label="Actual" value={formatMoney(cost.actual, "AED", { compact: true })} />
+        <StatCard label="Budget" value={formatMoney(cost.budget, currency, { compact: true })} />
+        <StatCard label="Committed" value={formatMoney(cost.committed, currency, { compact: true })} tone="info" />
+        <StatCard label="Actual" value={formatMoney(cost.actual, currency, { compact: true })} />
         <StatCard
           label="Forecast"
-          value={formatMoney(cost.forecast, "AED", { compact: true })}
+          value={formatMoney(cost.forecast, currency, { compact: true })}
           tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
           sub={
             cost.variance > 0
-              ? `+${formatMoney(cost.variance, "AED", { compact: true })} over budget`
+              ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
               : "on budget"
           }
         />
@@ -232,16 +302,16 @@ export default async function ProjectDetailPage({
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
           <div>
             <p className="eyebrow text-muted-foreground">Contract value</p>
-            <p className="font-display text-lg font-semibold tabular">{formatMoney(contractValue)}</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(contractValue, currency)}</p>
           </div>
           <div>
             <p className="eyebrow text-muted-foreground">Forecast cost</p>
-            <p className="font-display text-lg font-semibold tabular">{formatMoney(cost.forecast)}</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(cost.forecast, currency)}</p>
           </div>
           <div>
             <p className="eyebrow text-muted-foreground">Forecast margin</p>
             <p className={`font-display text-lg font-semibold tabular ${margin < 0 ? "text-critical" : "text-good"}`}>
-              {formatMoney(margin)}
+              {formatMoney(margin, currency)}
             </p>
             <p className="text-xs text-muted-foreground">
               {contractValue > 0 ? `${Math.round((margin / contractValue) * 100)}% of contract` : "no contract set"}
@@ -249,10 +319,10 @@ export default async function ProjectDetailPage({
           </div>
           <div>
             <p className="eyebrow text-muted-foreground">Billed to date</p>
-            <p className="font-display text-lg font-semibold tabular">{formatMoney(billed)}</p>
+            <p className="font-display text-lg font-semibold tabular">{formatMoney(billed, currency)}</p>
             <p className="text-xs text-muted-foreground">
               {contractValue > 0
-                ? `${formatMoney(billedRemaining, "AED", { compact: true })} left to bill`
+                ? `${formatMoney(billedRemaining, currency, { compact: true })} left to bill`
                 : "—"}
             </p>
           </div>
@@ -273,85 +343,27 @@ export default async function ProjectDetailPage({
         {/* ─── Schedule ─── */}
         <TabsContent value="schedule" className="space-y-4">
           <SectionCard
-            title="Tasks"
+            title="Work"
+            description="Board, table and timeline — drag to update status, click a card to open it."
             actions={
               canSchedule ? (
                 <AddTaskDialog projectId={project.id} wbsOptions={wbsOptions} memberOptions={memberOptions} />
               ) : null
             }
-            noPadding
           >
             {tasks.length === 0 ? (
-              <div className="p-6">
-                <EmptyState title="No tasks yet" description="Break the project into tasks to track progress." />
-              </div>
+              <EmptyState title="No tasks yet" description="Break the project into tasks to plan and track the work." />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                      <th className="px-4 py-2.5 font-medium">Task</th>
-                      <th className="px-4 py-2.5 font-medium">Status</th>
-                      <th className="px-4 py-2.5 font-medium w-36">Progress</th>
-                      <th className="px-4 py-2.5 font-medium">Start</th>
-                      <th className="px-4 py-2.5 font-medium">Due</th>
-                      <th className="px-4 py-2.5 font-medium">Assignee</th>
-                      {canSchedule && <th className="px-4 py-2.5" />}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tasks.map((tk) => {
-                      const d = daysUntil(tk.dueDate);
-                      const overdue = d !== null && d < 0 && tk.status !== "done";
-                      return (
-                        <tr key={tk.id} className="border-b last:border-0 hover:bg-muted/40">
-                          <td className="px-4 py-2.5">
-                            <span className="font-medium">{tk.name}</span>
-                            {tk.wbsId && wbsById.get(tk.wbsId) && (
-                              <span className="block text-xs text-muted-foreground">
-                                {wbsById.get(tk.wbsId)!.code} {wbsById.get(tk.wbsId)!.name}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <StatusPill status={tk.status} tones={TASK_STATUS_TONE} />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <ProgressMeter value={num(tk.progress)} tone={tk.isBlocked ? "critical" : "info"} />
-                          </td>
-                          <td className="px-4 py-2.5 text-muted-foreground">{formatDate(tk.startDate)}</td>
-                          <td className={`px-4 py-2.5 ${overdue ? "text-critical" : ""}`}>
-                            {formatDate(tk.dueDate)}
-                          </td>
-                          <td className="px-4 py-2.5 text-muted-foreground">{tk.assigneeName ?? "—"}</td>
-                          {canSchedule && (
-                            <td className="px-4 py-2.5">
-                              <div className="flex items-center justify-end gap-1">
-                                <UpdateTaskDialog
-                                  task={tk}
-                                  projectId={project.id}
-                                  wbsOptions={wbsOptions}
-                                  memberOptions={memberOptions}
-                                />
-                                <ActionButton
-                                  action={deleteTask}
-                                  fields={{ taskId: tk.id, projectId: project.id }}
-                                  confirm={`Delete task "${tk.name}"?`}
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label={`Delete task ${tk.name}`}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </ActionButton>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <WorkViews
+                projectId={project.id}
+                tasks={boardTasks}
+                wbsOptions={wbsOptions}
+                memberOptions={memberOptions}
+                wbsLabelById={wbsLabelById}
+                checklistByTask={checklistByTask}
+                commentsByTask={commentsByTask}
+                canSchedule={canSchedule}
+              />
             )}
           </SectionCard>
 
@@ -380,7 +392,7 @@ export default async function ProjectDetailPage({
                       <div>
                         <p className="text-sm font-medium">{ms.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          Due {formatDate(ms.dueDate)} · {formatMoney(ms.billingAmount)}
+                          Due {formatDate(ms.dueDate)} · {formatMoney(ms.billingAmount, currency)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -466,11 +478,11 @@ export default async function ProjectDetailPage({
                       <tr key={w.id} className="border-b last:border-0">
                         <td className="px-4 py-2.5 font-medium">{w.code}</td>
                         <td className="px-4 py-2.5">{w.name}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(w.budget)}</td>
-                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(c.committed)}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(c.actual)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(w.budget, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(c.committed, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(c.actual, currency)}</td>
                         <td className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : "text-muted-foreground"}`}>
-                          {formatMoney(remaining)}
+                          {formatMoney(remaining, currency)}
                         </td>
                         {canManage && (
                           <td className="px-4 py-2.5">
@@ -533,7 +545,7 @@ export default async function ProjectDetailPage({
                           <p className="text-sm font-medium">{r.itemName}</p>
                           <p className="text-xs text-muted-foreground">
                             {num(r.quantity)} {r.unit} · needed {formatDate(r.neededBy)}
-                            {estValue > 0 && <> · est {formatMoney(estValue)}</>}
+                            {estValue > 0 && <> · est {formatMoney(estValue, currency)}</>}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
@@ -628,8 +640,8 @@ export default async function ProjectDetailPage({
                       <tr key={co.id} className="border-b last:border-0">
                         <td className="px-4 py-2.5 font-medium">{co.number}</td>
                         <td className="px-4 py-2.5">{co.title}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(co.costImpact)}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(co.revenueImpact)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(co.costImpact, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(co.revenueImpact, currency)}</td>
                         <td className="px-4 py-2.5 text-right tabular">{co.scheduleImpactDays}</td>
                         <td className="px-4 py-2.5">
                           <StatusPill status={co.status} tones={CHANGE_ORDER_STATUS_TONE} />

@@ -26,6 +26,7 @@ const APPROVAL_TYPE_TONE: Record<string, BadgeTone> = {
 
 export default async function ApprovalsPage() {
   const user = await requireUser();
+  const currency = user.currencyCode;
   const canDecide = can(user.role, "approvals.decide");
   // Deciders (finance/admin) act here; requesters (PM/buyer) get a read-only
   // view so they can see the status and reason for their own submissions.
@@ -105,7 +106,7 @@ export default async function ApprovalsPage() {
         />
         <StatCard
           label="Pending value"
-          value={formatMoney(pendingValue, "AED", { compact: true })}
+          value={formatMoney(pendingValue, currency, { compact: true })}
           tone={pendingValue > 0 ? "warning" : "neutral"}
         />
         <StatCard label="Approved today" value={approvedToday} tone={approvedToday ? "good" : "neutral"} />
@@ -152,7 +153,7 @@ export default async function ApprovalsPage() {
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {a.projectCode ?? "—"}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(a.amount)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(a.amount, currency)}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {a.requestedByName ?? "—"}
                     </td>
@@ -220,7 +221,7 @@ export default async function ApprovalsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(a.amount)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(a.amount, currency)}</td>
                     <td className="px-4 py-2.5">
                       <StatusPill status={a.status} tones={APPROVAL_STATUS_TONE} />
                     </td>

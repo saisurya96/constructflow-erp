@@ -23,6 +23,7 @@ const INBOUND = ["approved", "released", "partially_received"] as const;
 
 export default async function RequirementsPage() {
   const user = await requireUser();
+  const currency = user.currencyCode;
   if (!can(user.role, "requirements.raise") && !can(user.role, "requirements.source")) {
     redirect("/forbidden");
   }
@@ -163,7 +164,7 @@ export default async function RequirementsPage() {
                         {required} {r.unit}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular text-muted-foreground">
-                        {estValue > 0 ? formatMoney(estValue) : "—"}
+                        {estValue > 0 ? formatMoney(estValue, currency) : "—"}
                       </td>
                       <td className="px-4 py-2.5">
                         <CoverageBar required={required} allocated={allocated} received={received} inbound={inbound} />

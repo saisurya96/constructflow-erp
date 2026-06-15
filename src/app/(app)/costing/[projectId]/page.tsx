@@ -39,6 +39,7 @@ export default async function JobCostingDetailPage({
 }) {
   const { projectId } = await params;
   const user = await requireCapability("costing.view");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [project] = await tx
@@ -122,7 +123,7 @@ export default async function JobCostingDetailPage({
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>{project.code}</span>
             {project.clientName && <span>{project.clientName}</span>}
-            <span>Contract {formatMoney(contractValue)}</span>
+            <span>Contract {formatMoney(contractValue, currency)}</span>
           </span>
         }
         actions={
@@ -134,31 +135,31 @@ export default async function JobCostingDetailPage({
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard label="Budget" value={formatMoney(cost.budget, "AED", { compact: true })} />
+        <StatCard label="Budget" value={formatMoney(cost.budget, currency, { compact: true })} />
         <StatCard
           label="Committed"
-          value={formatMoney(cost.committed, "AED", { compact: true })}
+          value={formatMoney(cost.committed, currency, { compact: true })}
           tone="info"
         />
-        <StatCard label="Actual" value={formatMoney(cost.actual, "AED", { compact: true })} />
+        <StatCard label="Actual" value={formatMoney(cost.actual, currency, { compact: true })} />
         <StatCard
           label="Incurred"
-          value={formatMoney(cost.incurred, "AED", { compact: true })}
+          value={formatMoney(cost.incurred, currency, { compact: true })}
           sub="actual + on order"
         />
         <StatCard
           label="Forecast"
-          value={formatMoney(cost.forecast, "AED", { compact: true })}
+          value={formatMoney(cost.forecast, currency, { compact: true })}
           tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
           sub={
             cost.variance > 0
-              ? `+${formatMoney(cost.variance, "AED", { compact: true })} over budget`
+              ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
               : "on budget"
           }
         />
         <StatCard
           label="Margin"
-          value={formatMoney(margin, "AED", { compact: true })}
+          value={formatMoney(margin, currency, { compact: true })}
           tone={margin < 0 ? "critical" : "good"}
           sub="contract − forecast"
         />
@@ -196,13 +197,13 @@ export default async function JobCostingDetailPage({
                       <tr key={w.id} className="border-b last:border-0">
                         <td className="px-4 py-2.5 font-medium">{w.code}</td>
                         <td className="px-4 py-2.5">{w.name}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(budget)}</td>
-                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(c.committed)}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(c.actual)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(budget, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(c.committed, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(c.actual, currency)}</td>
                         <td
                           className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : "text-muted-foreground"}`}
                         >
-                          {formatMoney(remaining)}
+                          {formatMoney(remaining, currency)}
                         </td>
                       </tr>
                     );
@@ -213,11 +214,11 @@ export default async function JobCostingDetailPage({
                       <tr className="border-b last:border-0 text-muted-foreground">
                         <td className="px-4 py-2.5 font-medium">—</td>
                         <td className="px-4 py-2.5 italic">Unassigned / project level</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedBudget)}</td>
-                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(unassignedCommitted)}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedActual)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedBudget, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(unassignedCommitted, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(unassignedActual, currency)}</td>
                         <td className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : ""}`}>
-                          {formatMoney(remaining)}
+                          {formatMoney(remaining, currency)}
                         </td>
                       </tr>
                     );
@@ -289,7 +290,7 @@ export default async function JobCostingDetailPage({
                           className={`px-4 py-2.5 text-right tabular ${amt < 0 ? "text-good" : ""}`}
                         >
                           {amt < 0 ? "" : "+"}
-                          {formatMoney(amt)}
+                          {formatMoney(amt, currency)}
                         </td>
                         {canPost && (
                           <td className="px-4 py-2.5 text-right">

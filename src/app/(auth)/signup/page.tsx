@@ -1,15 +1,26 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { Field } from "@/components/app/field";
+import { Field, NativeSelect } from "@/components/app/field";
 import { SubmitButton } from "@/components/app/submit-button";
+import { COUNTRIES, CURRENCY_OPTIONS, localeForCountry } from "@/lib/constants";
 import { signupAction } from "../actions";
 
 export default function SignupPage() {
   const [state, formAction] = useActionState(signupAction, null);
   const errors = state && !state.ok ? (state.fieldErrors ?? {}) : {};
+
+  // Country drives the suggested currency + VAT, but the currency stays
+  // overridable. Nothing is assumed — and it's all editable later in settings.
+  const [country, setCountry] = useState("AE");
+  const [currency, setCurrency] = useState("AED");
+  const onCountry = (code: string) => {
+    setCountry(code);
+    setCurrency(localeForCountry(code).currency);
+  };
+  const locale = localeForCountry(country);
 
   return (
     <div className="space-y-6">
@@ -39,6 +50,42 @@ export default function SignupPage() {
         >
           <Input id="password" name="password" type="password" required />
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Country" htmlFor="country" required error={errors.country}>
+            <NativeSelect
+              id="country"
+              name="country"
+              value={country}
+              onChange={(e) => onCountry(e.currentTarget.value)}
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field
+            label="Currency"
+            htmlFor="currencyCode"
+            required
+            error={errors.currencyCode}
+            hint={`VAT/GST defaults to ${locale.vat}% — editable later`}
+          >
+            <NativeSelect
+              id="currencyCode"
+              name="currencyCode"
+              value={currency}
+              onChange={(e) => setCurrency(e.currentTarget.value)}
+            >
+              {CURRENCY_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        </div>
         {state && !state.ok && state.error && (
           <p className="rounded-md bg-critical/10 px-3 py-2 text-sm text-critical">
             {state.error}

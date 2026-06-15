@@ -19,7 +19,8 @@ function varianceTone(variance: number, budget: number): "good" | "warning" | "c
 }
 
 export default async function CostingPage() {
-  await requireCapability("costing.view");
+  const user = await requireCapability("costing.view");
+  const currency = user.currencyCode;
 
   const rows = await db(async (tx) => {
     const projects = await tx
@@ -60,26 +61,26 @@ export default async function CostingPage() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="Portfolio budget" value={formatMoney(totals.budget, "AED", { compact: true })} />
+        <StatCard label="Portfolio budget" value={formatMoney(totals.budget, currency, { compact: true })} />
         <StatCard
           label="Committed"
-          value={formatMoney(totals.committed, "AED", { compact: true })}
+          value={formatMoney(totals.committed, currency, { compact: true })}
           tone="info"
         />
-        <StatCard label="Actual" value={formatMoney(totals.actual, "AED", { compact: true })} />
+        <StatCard label="Actual" value={formatMoney(totals.actual, currency, { compact: true })} />
         <StatCard
           label="Forecast"
-          value={formatMoney(totals.forecast, "AED", { compact: true })}
+          value={formatMoney(totals.forecast, currency, { compact: true })}
           tone={totals.forecast > totals.budget * 1.03 ? "warning" : "good"}
           sub={
             totals.forecast - totals.budget > 0
-              ? `+${formatMoney(totals.forecast - totals.budget, "AED", { compact: true })} over budget`
+              ? `+${formatMoney(totals.forecast - totals.budget, currency, { compact: true })} over budget`
               : "on budget"
           }
         />
         <StatCard
           label="Total margin"
-          value={formatMoney(totals.margin, "AED", { compact: true })}
+          value={formatMoney(totals.margin, currency, { compact: true })}
           tone={totals.margin < 0 ? "critical" : "good"}
           sub="contract − forecast"
         />
@@ -127,10 +128,10 @@ export default async function CostingPage() {
                       <td className="px-4 py-2.5">
                         <StatusPill status={project.status} tones={PROJECT_STATUS_TONE} />
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.budget)}</td>
-                      <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(cost.committed)}</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.actual)}</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.forecast)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.budget, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(cost.committed, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.actual, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.forecast, currency)}</td>
                       <td
                         className={`px-4 py-2.5 text-right tabular ${
                           vTone === "critical"
@@ -141,12 +142,12 @@ export default async function CostingPage() {
                         }`}
                       >
                         {cost.variance > 0 ? "+" : ""}
-                        {formatMoney(cost.variance)}
+                        {formatMoney(cost.variance, currency)}
                       </td>
                       <td
                         className={`px-4 py-2.5 text-right tabular ${margin < 0 ? "text-critical" : "text-good"}`}
                       >
-                        {formatMoney(margin)}
+                        {formatMoney(margin, currency)}
                       </td>
                     </tr>
                   );

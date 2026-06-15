@@ -20,6 +20,7 @@ import { setWarehouseActive } from "./actions";
 
 export default async function InventoryPage() {
   const user = await requireCapability("inventory.manage");
+  const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
     const items = await tx
@@ -115,7 +116,7 @@ export default async function InventoryPage() {
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="SKUs" value={rows.length} sub={`${data.warehouses.length} warehouse${data.warehouses.length === 1 ? "" : "s"}`} />
         {canSeeCost ? (
-          <StatCard label="Total stock value" value={formatMoney(totalValue, "AED", { compact: true })} />
+          <StatCard label="Total stock value" value={formatMoney(totalValue, currency, { compact: true })} />
         ) : (
           <StatCard
             label="On hand"
@@ -188,8 +189,8 @@ export default async function InventoryPage() {
                     <td className={`px-4 py-2.5 text-right tabular ${available <= 0 ? "text-muted-foreground" : "text-good"}`}>
                       {formatNumber(available, 3)}
                     </td>
-                    {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(it.unitCost)}</td>}
-                    {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(stockValue)}</td>}
+                    {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(it.unitCost, currency)}</td>}
+                    {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(stockValue, currency)}</td>}
                     <td className={`px-4 py-2.5 text-right tabular ${low ? "text-critical" : "text-muted-foreground"}`}>
                       <span className="inline-flex items-center justify-end gap-1">
                         {reorder > 0 ? formatNumber(reorder, 3) : "—"}

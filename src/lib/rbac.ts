@@ -62,6 +62,7 @@ export function can(role: UserRole, capability: Capability): boolean {
 
 export type NavKey =
   | "dashboard"
+  | "mywork"
   | "projects"
   | "requirements"
   | "rfqs"
@@ -87,6 +88,7 @@ export type NavItem = {
 
 const NAV_DEFS: Record<NavKey, Omit<NavItem, "key">> = {
   dashboard: { label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard" },
+  mywork: { label: "My Work", href: "/my-work", icon: "ListTodo" },
   projects: { label: "Projects", href: "/projects", icon: "FolderKanban" },
   requirements: { label: "Requirements", href: "/requirements", icon: "ClipboardList" },
   rfqs: { label: "RFQs", href: "/rfqs", icon: "FileText" },
@@ -106,6 +108,7 @@ const NAV_DEFS: Record<NavKey, Omit<NavItem, "key">> = {
 const ROLE_NAV: Record<UserRole, NavKey[]> = {
   admin: [
     "dashboard",
+    "mywork",
     "projects",
     "requirements",
     "rfqs",
@@ -121,10 +124,10 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
     "audit",
     "admin",
   ],
-  pm: ["dashboard", "projects", "requirements", "approvals"],
-  buyer: ["dashboard", "requirements", "rfqs", "orders", "vendors", "approvals"],
-  storekeeper: ["dashboard", "deliveries", "receipts", "inventory", "allocations"],
-  finance: ["dashboard", "projects", "costing", "billing", "approvals", "audit"],
+  pm: ["dashboard", "mywork", "projects", "requirements", "approvals"],
+  buyer: ["dashboard", "mywork", "requirements", "rfqs", "orders", "vendors", "approvals"],
+  storekeeper: ["dashboard", "mywork", "deliveries", "receipts", "inventory", "allocations"],
+  finance: ["dashboard", "mywork", "projects", "costing", "billing", "approvals", "audit"],
 };
 
 export function navForRole(role: UserRole): NavItem[] {

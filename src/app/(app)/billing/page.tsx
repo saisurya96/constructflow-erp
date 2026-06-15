@@ -15,7 +15,8 @@ import { EmptyState } from "@/components/app/empty-state";
 import { CreateInvoiceDialog, type ProjectOption } from "./dialogs";
 
 export default async function BillingPage() {
-  await requireCapability("billing.manage");
+  const user = await requireCapability("billing.manage");
+  const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
     const invoices = await tx
@@ -110,15 +111,15 @@ export default async function BillingPage() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Billed" value={formatMoney(billed, "AED", { compact: true })} />
+        <StatCard label="Billed" value={formatMoney(billed, currency, { compact: true })} />
         <StatCard
           label="Collected"
-          value={formatMoney(collected, "AED", { compact: true })}
+          value={formatMoney(collected, currency, { compact: true })}
           tone="good"
         />
         <StatCard
           label="Outstanding"
-          value={formatMoney(outstanding, "AED", { compact: true })}
+          value={formatMoney(outstanding, currency, { compact: true })}
           tone={outstanding > 0 ? "warning" : "good"}
         />
         <StatCard
@@ -173,14 +174,14 @@ export default async function BillingPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 capitalize text-muted-foreground">{inv.type}</td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(total)}</td>
-                    <td className="px-4 py-2.5 text-right tabular text-good">{formatMoney(paid)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(total, currency)}</td>
+                    <td className="px-4 py-2.5 text-right tabular text-good">{formatMoney(paid, currency)}</td>
                     <td
                       className={`px-4 py-2.5 text-right tabular ${
                         outstanding > 0 ? "text-foreground" : "text-muted-foreground"
                       }`}
                     >
-                      {formatMoney(Math.max(0, outstanding))}
+                      {formatMoney(Math.max(0, outstanding), currency)}
                     </td>
                     <td className={`px-4 py-2.5 ${overdue ? "text-critical font-medium" : ""}`}>
                       {formatDate(inv.dueDate)}

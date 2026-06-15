@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, DateField, NativeSelect } from "@/components/app/field";
-import { UNITS } from "@/lib/constants";
+import {
+  UNITS,
+  WBS_TEMPLATES,
+  TASK_PRIORITY_ORDER,
+  TASK_PRIORITY_LABELS,
+} from "@/lib/constants";
 import {
   createProject,
   updateProject,
@@ -50,10 +55,12 @@ export function ProjectStatusControl({
   // status (looking like the save failed). Adopt the server value when the
   // prop updates, and roll back to it if the action errors.
   const [value, setValue] = useState(status);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setValue(status), [status]);
   useEffect(() => {
     if (state && !state.ok) {
       toast.error(state.error);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setValue(status);
     }
   }, [state, status]);
@@ -109,6 +116,21 @@ function ProjectFields({
           defaultValue={defaults?.contractValue ?? "0"}
         />
       </Field>
+      {!defaults && (
+        <Field
+          label="Cost code template"
+          htmlFor="template"
+          hint="Seeds a starter WBS — pick the one closest to this job. Codes are fully editable afterwards."
+        >
+          <NativeSelect id="template" name="template" defaultValue="new_build">
+            {(Object.keys(WBS_TEMPLATES) as (keyof typeof WBS_TEMPLATES)[]).map((k) => (
+              <option key={k} value={k}>
+                {WBS_TEMPLATES[k].label}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      )}
       <p className="text-xs text-muted-foreground">
         Set the cost budget per cost code on the Budget tab{defaults ? "" : " after the project is created"}.
       </p>
@@ -197,11 +219,10 @@ export function AddTaskDialog({
             <Input id="name" name="name" required placeholder="Raft foundation pour" />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Cost code (WBS)" htmlFor="wbsId">
-              <NativeSelect id="wbsId" name="wbsId" defaultValue="">
-                <option value="">— none —</option>
-                {wbsOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
+            <Field label="Priority" htmlFor="priority">
+              <NativeSelect id="priority" name="priority" defaultValue="medium">
+                {TASK_PRIORITY_ORDER.map((p) => (
+                  <option key={p} value={p}>{TASK_PRIORITY_LABELS[p]}</option>
                 ))}
               </NativeSelect>
             </Field>
@@ -214,6 +235,14 @@ export function AddTaskDialog({
               </NativeSelect>
             </Field>
           </div>
+          <Field label="Cost code (WBS)" htmlFor="wbsId">
+            <NativeSelect id="wbsId" name="wbsId" defaultValue="">
+              <option value="">— none —</option>
+              {wbsOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </NativeSelect>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Start date" htmlFor="startDate">
               <DateField name="startDate" />
@@ -222,6 +251,9 @@ export function AddTaskDialog({
               <DateField name="dueDate" />
             </Field>
           </div>
+          <Field label="Description" htmlFor="description">
+            <Textarea id="description" name="description" rows={2} placeholder="Scope / notes" />
+          </Field>
         </>
       )}
     </FormDialog>
@@ -237,7 +269,9 @@ export function UpdateTaskDialog({
   task: {
     id: string;
     name: string;
+    description?: string | null;
     status: string;
+    priority?: string;
     progress: string;
     wbsId: string | null;
     assigneeId: string | null;
@@ -257,7 +291,7 @@ export function UpdateTaskDialog({
       className="sm:max-w-lg"
       trigger={
         <Button size="xs" variant="ghost">
-          <Pencil className="size-3.5" /> Update
+          <Pencil className="size-3.5" /> Edit details
         </Button>
       }
     >
@@ -268,13 +302,20 @@ export function UpdateTaskDialog({
           <Field label="Task name" htmlFor="name" required error={errors.name}>
             <Input id="name" name="name" required defaultValue={task.name} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Status" htmlFor="status">
               <NativeSelect id="status" name="status" defaultValue={task.status}>
                 <option value="not_started">Not started</option>
                 <option value="in_progress">In progress</option>
                 <option value="blocked">Blocked</option>
                 <option value="done">Done</option>
+              </NativeSelect>
+            </Field>
+            <Field label="Priority" htmlFor="priority">
+              <NativeSelect id="priority" name="priority" defaultValue={task.priority ?? "medium"}>
+                {TASK_PRIORITY_ORDER.map((p) => (
+                  <option key={p} value={p}>{TASK_PRIORITY_LABELS[p]}</option>
+                ))}
               </NativeSelect>
             </Field>
             <Field label="Progress %" htmlFor="progress">
@@ -324,6 +365,9 @@ export function UpdateTaskDialog({
               />
             </Field>
           </div>
+          <Field label="Description" htmlFor="description">
+            <Textarea id="description" name="description" rows={2} defaultValue={task.description ?? ""} />
+          </Field>
         </>
       )}
     </FormDialog>

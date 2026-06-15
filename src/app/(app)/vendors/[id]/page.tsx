@@ -40,6 +40,7 @@ export default async function VendorDetailPage({
 }) {
   const { id } = await params;
   const user = await requireCapability("vendors.manage");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [vendor] = await tx
@@ -142,7 +143,7 @@ export default async function VendorDetailPage({
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Total spend" value={formatMoney(poSpend, "AED", { compact: true })} />
+        <StatCard label="Total spend" value={formatMoney(poSpend, currency, { compact: true })} />
         <StatCard
           label="Open orders"
           value={openPOs}
@@ -248,7 +249,7 @@ export default async function VendorDetailPage({
                           </Link>
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">{o.projectName ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(o.totalAmount)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(o.totalAmount, currency)}</td>
                         <td className="px-4 py-2.5">
                           <StatusPill status={o.status} tones={PO_STATUS_TONE} />
                         </td>
@@ -288,7 +289,7 @@ export default async function VendorDetailPage({
                           <span className="font-medium">{q.rfqNumber}</span>
                           <span className="block text-xs text-muted-foreground">{q.rfqTitle}</span>
                         </td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(q.totalAmount)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(q.totalAmount, currency)}</td>
                         <td className="px-4 py-2.5 text-right tabular">
                           {num(q.technicalCompliance) > 0 ? formatPercent(q.technicalCompliance) : "—"}
                         </td>

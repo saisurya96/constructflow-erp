@@ -25,7 +25,8 @@ export default async function InvoiceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireCapability("billing.manage");
+  const user = await requireCapability("billing.manage");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [invoice] = await tx
@@ -215,17 +216,17 @@ export default async function InvoiceDetailPage({
       {overdue && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-critical/30 bg-critical/5 px-3 py-2 text-sm text-critical">
           <CalendarClock className="size-4" />
-          Overdue by {Math.abs(d!)} day{Math.abs(d!) === 1 ? "" : "s"} — {formatMoney(outstanding)} outstanding.
+          Overdue by {Math.abs(d!)} day{Math.abs(d!) === 1 ? "" : "s"} — {formatMoney(outstanding, currency)} outstanding.
         </div>
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Subtotal" value={formatMoney(invoice.subtotal)} />
-        <StatCard label="Total (incl. tax)" value={formatMoney(total)} />
-        <StatCard label="Paid" value={formatMoney(paid)} tone="good" />
+        <StatCard label="Subtotal" value={formatMoney(invoice.subtotal, currency)} />
+        <StatCard label="Total (incl. tax)" value={formatMoney(total, currency)} />
+        <StatCard label="Paid" value={formatMoney(paid, currency)} tone="good" />
         <StatCard
           label="Outstanding"
-          value={formatMoney(Math.max(0, outstanding))}
+          value={formatMoney(Math.max(0, outstanding), currency)}
           tone={outstanding > 0 ? (overdue ? "critical" : "warning") : "good"}
         />
       </div>
@@ -254,7 +255,7 @@ export default async function InvoiceDetailPage({
                         <td className="px-4 py-2.5 text-muted-foreground">
                           {l.wbsCode ? `${l.wbsCode} ${l.wbsName}` : "—"}
                         </td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.amount)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.amount, currency)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -263,34 +264,34 @@ export default async function InvoiceDetailPage({
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Subtotal
                       </td>
-                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.subtotal)}</td>
+                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.subtotal, currency)}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Tax
                       </td>
-                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.taxAmount)}</td>
+                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.taxAmount, currency)}</td>
                     </tr>
                     <tr className="border-t">
                       <td className="px-4 py-2.5 text-right text-sm font-medium" colSpan={2}>
                         Total
                       </td>
                       <td className="px-4 py-2.5 text-right tabular font-semibold">
-                        {formatMoney(total)}
+                        {formatMoney(total, currency)}
                       </td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Paid
                       </td>
-                      <td className="px-4 py-2 text-right tabular text-good">{formatMoney(paid)}</td>
+                      <td className="px-4 py-2 text-right tabular text-good">{formatMoney(paid, currency)}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Outstanding
                       </td>
                       <td className="px-4 py-2 text-right tabular font-medium">
-                        {formatMoney(Math.max(0, outstanding))}
+                        {formatMoney(Math.max(0, outstanding), currency)}
                       </td>
                     </tr>
                   </tfoot>
@@ -317,7 +318,7 @@ export default async function InvoiceDetailPage({
               {payments.map((p) => (
                 <div key={p.id} className="flex items-start justify-between gap-3 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium tabular">{formatMoney(p.amount)}</p>
+                    <p className="text-sm font-medium tabular">{formatMoney(p.amount, currency)}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(p.paidDate)}
                       {p.method ? ` · ${p.method.replace(/_/g, " ")}` : ""}
@@ -333,7 +334,7 @@ export default async function InvoiceDetailPage({
                       <ActionButton
                         action={reversePayment}
                         fields={{ paymentId: p.id, invoiceId: invoice.id }}
-                        confirm={`Reverse this ${formatMoney(p.amount)} payment?`}
+                        confirm={`Reverse this ${formatMoney(p.amount, currency)} payment?`}
                         variant="ghost"
                         size="xs"
                       >

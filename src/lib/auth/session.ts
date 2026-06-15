@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { authDb } from "@/db/client";
-import { sessions, users } from "@/db/schema";
+import { sessions, users, companies } from "@/db/schema";
 import type { UserRole } from "@/db/schema";
 
 const COOKIE = "cf_session";
@@ -16,6 +16,8 @@ export type AuthContext = {
   fullName: string;
   email: string;
   title: string | null;
+  /** Tenant display currency (ISO code) — drives money formatting app-wide. */
+  currencyCode: string;
 };
 
 function hashToken(token: string): string {
@@ -72,9 +74,11 @@ export async function readSessionContext(): Promise<AuthContext | null> {
       email: users.email,
       title: users.title,
       isActive: users.isActive,
+      currencyCode: companies.currencyCode,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
+    .innerJoin(companies, eq(companies.id, users.companyId))
     .where(eq(sessions.tokenHash, hashToken(token)))
     .limit(1);
 
@@ -93,5 +97,6 @@ export async function readSessionContext(): Promise<AuthContext | null> {
     fullName: row.fullName,
     email: row.email,
     title: row.title,
+    currencyCode: row.currencyCode ?? "AED",
   };
 }

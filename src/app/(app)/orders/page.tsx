@@ -18,6 +18,7 @@ const OPEN_STATUSES = ["draft", "pending_approval", "approved", "released", "par
 
 export default async function OrdersPage() {
   const user = await requireCapability("procurement.manage");
+  const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
     const orders = await tx
@@ -92,6 +93,7 @@ export default async function OrdersPage() {
               vendorOptions={vendorOptions}
               projectOptions={projectOptions}
               wbsByProject={wbsByProject}
+              currency={currency}
             />
           ) : null
         }
@@ -106,7 +108,7 @@ export default async function OrdersPage() {
         />
         <StatCard
           label="Committed value"
-          value={formatMoney(committed, "AED", { compact: true })}
+          value={formatMoney(committed, currency, { compact: true })}
           tone="info"
           sub="released into cost ledger"
         />
@@ -164,7 +166,7 @@ export default async function OrdersPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(o.totalAmount)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(o.totalAmount, currency)}</td>
                     <td className="px-4 py-2.5">{formatDate(o.expectedDate)}</td>
                     <td className="px-4 py-2.5">
                       <StatusPill status={o.status} tones={PO_STATUS_TONE} />

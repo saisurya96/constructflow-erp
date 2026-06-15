@@ -44,12 +44,14 @@ function PoFields({
   projectOptions,
   wbsByProject,
   defaults,
+  currency = "AED",
 }: {
   errors: Record<string, string>;
   vendorOptions: Option[];
   projectOptions: Option[];
   wbsByProject: Record<string, Option[]>;
   defaults?: PoDefaults;
+  currency?: string;
 }) {
   const [lines, setLines] = useState<LineRow[]>(() =>
     defaults && defaults.lines.length
@@ -241,7 +243,7 @@ function PoFields({
 
         <div className="flex items-center justify-end gap-2 px-1 text-sm">
           <span className="text-muted-foreground">Subtotal</span>
-          <span className="font-medium tabular">{formatMoney(subtotal)}</span>
+          <span className="font-medium tabular">{formatMoney(subtotal, currency)}</span>
           <span className="text-xs text-muted-foreground">+ VAT on submit</span>
         </div>
       </div>
@@ -257,11 +259,13 @@ export function CreatePoDialog({
   vendorOptions,
   projectOptions,
   wbsByProject,
+  currency = "AED",
 }: {
   vendorOptions: Option[];
   projectOptions: Option[];
   /** projectId -> WBS options, so cost codes follow the chosen project. */
   wbsByProject: Record<string, Option[]>;
+  currency?: string;
 }) {
   return (
     <FormDialog
@@ -282,6 +286,7 @@ export function CreatePoDialog({
           vendorOptions={vendorOptions}
           projectOptions={projectOptions}
           wbsByProject={wbsByProject}
+          currency={currency}
         />
       )}
     </FormDialog>
@@ -294,12 +299,14 @@ export function EditPoDialog({
   projectOptions,
   wbsByProject,
   defaults,
+  currency = "AED",
 }: {
   poId: string;
   vendorOptions: Option[];
   projectOptions: Option[];
   wbsByProject: Record<string, Option[]>;
   defaults: PoDefaults;
+  currency?: string;
 }) {
   return (
     <FormDialog
@@ -323,6 +330,7 @@ export function EditPoDialog({
             projectOptions={projectOptions}
             wbsByProject={wbsByProject}
             defaults={defaults}
+            currency={currency}
           />
         </>
       )}

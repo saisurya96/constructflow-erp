@@ -8,7 +8,7 @@ import type { Tx } from "@/db/client";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import { nextNumber } from "@/lib/numbering";
-import { DEFAULT_WBS_TEMPLATE } from "@/lib/constants";
+import { WBS_TEMPLATES } from "@/lib/constants";
 import * as t from "@/db/schema";
 import {
   parseForm,
@@ -45,6 +45,7 @@ const projectSchema = z.object({
   startDate: zOptionalDate,
   endDate: zOptionalDate,
   description: z.string().optional(),
+  template: z.enum(["new_build", "fit_out", "renovation", "generic"]).optional(),
 });
 
 export async function createProject(
@@ -73,8 +74,9 @@ export async function createProject(
         createdBy: ctx.userId,
       })
       .returning();
+    const template = WBS_TEMPLATES[d.template ?? "new_build"] ?? WBS_TEMPLATES.new_build;
     await tx.insert(t.wbsCodes).values(
-      DEFAULT_WBS_TEMPLATE.map((w, i) => ({
+      template.codes.map((w, i) => ({
         companyId: ctx.companyId,
         projectId: proj.id,
         code: w.code,
@@ -267,9 +269,13 @@ export async function deleteWbsCode(
 
 /* ───────────────────────────── schedule ────────────────────────────── */
 
+const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+
 const taskSchema = z.object({
   projectId: z.string().uuid(),
   name: z.string().min(2, "Task name is required"),
+  description: z.string().optional(),
+  priority: z.enum(TASK_PRIORITIES).optional(),
   wbsId: z.string().uuid().optional(),
   assigneeId: z.string().uuid().optional(),
   startDate: zOptionalDate,
@@ -285,14 +291,22 @@ export async function createTask(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    // New tasks drop to the end of the not-started column.
+    const [maxRow] = await tx
+      .select({ m: sql<number>`coalesce(max(${t.tasks.sortOrder}), 0)` })
+      .from(t.tasks)
+      .where(eq(t.tasks.projectId, d.projectId));
     await tx.insert(t.tasks).values({
       companyId: ctx.companyId,
       projectId: d.projectId,
       name: d.name,
+      description: d.description ?? null,
+      priority: d.priority ?? "medium",
       wbsId: d.wbsId ?? null,
       assigneeId: d.assigneeId ?? null,
       startDate: d.startDate ?? null,
       dueDate: d.dueDate ?? null,
+      sortOrder: Number(maxRow?.m ?? 0) + 1,
     });
     await recomputeProjectProgress(tx, d.projectId);
     await audit(tx, ctx, {
@@ -310,7 +324,9 @@ const taskUpdateSchema = z.object({
   taskId: z.string().uuid(),
   projectId: z.string().uuid(),
   name: z.string().min(2, "Task name is required"),
+  description: z.string().optional(),
   status: z.enum(["not_started", "in_progress", "blocked", "done"]),
+  priority: z.enum(TASK_PRIORITIES).optional(),
   progress: z.coerce.number().default(0),
   wbsId: z.string().uuid().optional(),
   assigneeId: z.string().uuid().optional(),
@@ -336,7 +352,9 @@ export async function updateTask(
       .update(t.tasks)
       .set({
         name: d.name,
+        description: d.description ?? null,
         status: d.status,
+        priority: d.priority ?? "medium",
         progress: pct(progress),
         wbsId: d.wbsId ?? null,
         assigneeId: d.assigneeId ?? null,

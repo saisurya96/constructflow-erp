@@ -63,6 +63,7 @@ export default async function PoPrintPage({
         name: t.companies.name,
         address: t.companies.address,
         country: t.companies.country,
+        currencyCode: t.companies.currencyCode,
       })
       .from(t.companies)
       .limit(1);
@@ -72,6 +73,7 @@ export default async function PoPrintPage({
 
   if (!result) notFound();
   const { po, lines, company } = result;
+  const currency = company?.currencyCode ?? "AED";
   const isSub = po.type === "subcontract";
 
   return (
@@ -143,10 +145,10 @@ export default async function PoPrintPage({
                 {num(l.quantity)} {l.unit}
               </td>
               <td className="py-2 px-2 text-right tabular">
-                {formatMoney(l.unitPrice)}
+                {formatMoney(l.unitPrice, currency)}
               </td>
               <td className="py-2 pl-2 text-right tabular">
-                {formatMoney(l.lineTotal)}
+                {formatMoney(l.lineTotal, currency)}
               </td>
             </tr>
           ))}
@@ -157,15 +159,15 @@ export default async function PoPrintPage({
         <dl className="w-64 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular">{formatMoney(po.subtotal)}</dd>
+            <dd className="tabular">{formatMoney(po.subtotal, currency)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">VAT</dt>
-            <dd className="tabular">{formatMoney(po.taxAmount)}</dd>
+            <dd className="tabular">{formatMoney(po.taxAmount, currency)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
             <dt>Total</dt>
-            <dd className="tabular">{formatMoney(po.totalAmount)}</dd>
+            <dd className="tabular">{formatMoney(po.totalAmount, currency)}</dd>
           </div>
         </dl>
       </div>

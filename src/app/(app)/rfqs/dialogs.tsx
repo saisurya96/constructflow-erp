@@ -96,6 +96,7 @@ export function EnterQuoteDialog({
   vendorName,
   lines,
   defaults,
+  currency = "AED",
 }: {
   quoteId: string;
   vendorName: string;
@@ -107,6 +108,7 @@ export function EnterQuoteDialog({
     paymentTerms?: string | null;
     prices?: Record<string, string>;
   };
+  currency?: string;
 }) {
   const received = !!defaults;
   const [prices, setPrices] = useState<Record<string, string>>(
@@ -172,7 +174,7 @@ export function EnterQuoteDialog({
             <div className="flex items-center justify-between border-t pt-2 text-sm">
               <span className="text-muted-foreground">Quote total</span>
               <span className="font-display text-base font-semibold tabular">
-                {formatMoney(total)}
+                {formatMoney(total, currency)}
               </span>
             </div>
           </div>

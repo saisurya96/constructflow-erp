@@ -37,6 +37,7 @@ export default async function GrnDetailPage({
 }) {
   const { id } = await params;
   const user = await requireCapability("inventory.manage");
+  const currency = user.currencyCode;
   const canSeeCost = can(user.role, "costing.view");
 
   const result = await db(async (tx) => {
@@ -136,7 +137,7 @@ export default async function GrnDetailPage({
           sub={totalRejected > 0 ? "units refused" : "none"}
         />
         {canSeeCost ? (
-          <StatCard label="Received value" value={formatMoney(totalValue, "AED", { compact: true })} />
+          <StatCard label="Received value" value={formatMoney(totalValue, currency, { compact: true })} />
         ) : (
           <StatCard label="Delivery note" value={grn.deliveryNoteNumber ?? "—"} />
         )}
@@ -170,10 +171,10 @@ export default async function GrnDetailPage({
                   <td className="px-4 py-2.5">
                     <StatusBadge tone={CONDITION_TONE[l.condition] ?? "neutral"}>{l.condition}</StatusBadge>
                   </td>
-                  {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.unitCost)}</td>}
+                  {canSeeCost && <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.unitCost, currency)}</td>}
                   {canSeeCost && (
                     <td className="px-4 py-2.5 text-right tabular">
-                      {formatMoney(num(l.acceptedQty) * num(l.unitCost))}
+                      {formatMoney(num(l.acceptedQty) * num(l.unitCost), currency)}
                     </td>
                   )}
                 </tr>

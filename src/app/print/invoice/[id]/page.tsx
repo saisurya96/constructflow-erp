@@ -55,6 +55,7 @@ export default async function InvoicePrintPage({
         name: t.companies.name,
         address: t.companies.address,
         country: t.companies.country,
+        currencyCode: t.companies.currencyCode,
       })
       .from(t.companies)
       .limit(1);
@@ -64,6 +65,7 @@ export default async function InvoicePrintPage({
 
   if (!result) notFound();
   const { inv, lines, company } = result;
+  const currency = company?.currencyCode ?? "AED";
   const balance = num(inv.totalAmount) - num(inv.amountPaid);
 
   return (
@@ -102,7 +104,7 @@ export default async function InvoicePrintPage({
             <tr className="border-b">
               <td className="py-2 pr-2 text-foreground">{inv.title}</td>
               <td className="py-2 pl-2 text-right tabular">
-                {formatMoney(inv.subtotal)}
+                {formatMoney(inv.subtotal, currency)}
               </td>
             </tr>
           ) : (
@@ -117,7 +119,7 @@ export default async function InvoicePrintPage({
                   )}
                 </td>
                 <td className="py-2 pl-2 text-right tabular">
-                  {formatMoney(l.amount)}
+                  {formatMoney(l.amount, currency)}
                 </td>
               </tr>
             ))
@@ -129,25 +131,25 @@ export default async function InvoicePrintPage({
         <dl className="w-64 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular">{formatMoney(inv.subtotal)}</dd>
+            <dd className="tabular">{formatMoney(inv.subtotal, currency)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">VAT</dt>
-            <dd className="tabular">{formatMoney(inv.taxAmount)}</dd>
+            <dd className="tabular">{formatMoney(inv.taxAmount, currency)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
             <dt>Total</dt>
-            <dd className="tabular">{formatMoney(inv.totalAmount)}</dd>
+            <dd className="tabular">{formatMoney(inv.totalAmount, currency)}</dd>
           </div>
           {num(inv.amountPaid) > 0 && (
             <>
               <div className="flex justify-between text-muted-foreground">
                 <dt>Paid</dt>
-                <dd className="tabular">−{formatMoney(inv.amountPaid)}</dd>
+                <dd className="tabular">−{formatMoney(inv.amountPaid, currency)}</dd>
               </div>
               <div className="flex justify-between border-t pt-1.5 font-semibold">
                 <dt>Balance due</dt>
-                <dd className="tabular">{formatMoney(balance)}</dd>
+                <dd className="tabular">{formatMoney(balance, currency)}</dd>
               </div>
             </>
           )}

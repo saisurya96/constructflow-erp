@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   ScrollText,
   Settings,
+  ListTodo,
   ChevronsUpDown,
   type LucideIcon,
 } from "lucide-react";
@@ -54,6 +55,7 @@ const ICONS: Record<string, LucideIcon> = {
   BadgeCheck,
   ScrollText,
   Settings,
+  ListTodo,
 };
 
 type ShellUser = { fullName: string; email: string; roleLabel: string };

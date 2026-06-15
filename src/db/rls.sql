@@ -21,7 +21,8 @@ declare
   t text;
   tenant_tables text[] := array[
     'users','sessions','invitations','number_sequences','vendors','projects',
-    'project_members','wbs_codes','tasks','task_dependencies','milestones',
+    'project_members','wbs_codes','tasks','task_dependencies',
+    'task_checklist_items','task_comments','milestones',
     'project_requirements','rfqs','rfq_lines','rfq_vendors','vendor_quotes',
     'vendor_quote_lines','purchase_orders','purchase_order_lines','warehouses',
     'goods_receipts','goods_receipt_lines','inventory_items','inventory_movements',

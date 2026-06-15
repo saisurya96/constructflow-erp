@@ -19,6 +19,7 @@ const EMPTY_STATS: VendorStats = { spend: 0, orders: 0, onTimeRate: null, defect
 
 export default async function VendorsPage() {
   const user = await requireCapability("vendors.manage");
+  const currency = user.currencyCode;
 
   const { vendors, stats } = await db(async (tx) => {
     const vendors = await tx
@@ -59,7 +60,7 @@ export default async function VendorsPage() {
           value={`${formatNumber(avgRating, 1)} / 5`}
           tone={avgRating >= 4 ? "good" : avgRating >= 3 ? "warning" : "neutral"}
         />
-        <StatCard label="Total spend" value={formatMoney(totalSpend, "AED", { compact: true })} />
+        <StatCard label="Total spend" value={formatMoney(totalSpend, currency, { compact: true })} />
       </div>
 
       <SectionCard noPadding>
@@ -123,7 +124,7 @@ export default async function VendorsPage() {
                     >
                       {s.defectRate !== null ? formatPercent(s.defectRate) : "—"}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(s.spend)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(s.spend, currency)}</td>
                     {canManage && (
                       <td className="px-4 py-2.5 text-right">
                         <ActionButton

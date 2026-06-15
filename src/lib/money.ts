@@ -12,12 +12,20 @@ export function formatMoney(
   opts: { compact?: boolean } = {},
 ): string {
   const value = num(v);
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-    notation: opts.compact ? "compact" : "standard",
-  }).format(value);
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      // narrowSymbol prefers the glyph ($, £, €, ₹) over the ISO code where one
+      // exists; currencies without a glyph (AED, SAR, …) still show their code.
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: 0,
+      notation: opts.compact ? "compact" : "standard",
+    }).format(value);
+  } catch {
+    // Unknown/invalid currency code — fall back to a plain prefixed number.
+    return `${currency} ${formatNumber(value, 0)}`;
+  }
 }
 
 export function formatNumber(

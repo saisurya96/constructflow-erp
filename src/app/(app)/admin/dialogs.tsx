@@ -1,10 +1,18 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { UserPlus, Save, Pencil, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
@@ -88,7 +96,13 @@ export function InviteUserDialog() {
   );
 }
 
-/** Inline role <select> that submits on change. */
+/**
+ * Inline role <select> that submits on change. The dropdown is controlled so it
+ * reflects the persisted role across revalidation (an uncontrolled select would
+ * snap back to its initial value after a successful change). Grants/revokes of
+ * full Administrator access are gated behind the app's styled confirm dialog
+ * rather than the jarring, unbrandable native window.confirm.
+ */
 export function RoleControl({
   userId,
   role,
@@ -98,47 +112,88 @@ export function RoleControl({
 }) {
   const [state, formAction] = useActionState(updateUserRole, null);
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [value, setValue] = useState<UserRole>(role);
+  const [pending, setPending] = useState<UserRole | null>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setValue(role), [role]);
   useEffect(() => {
     if (state?.ok) {
       toast.success(state.message ?? "Role updated");
       router.refresh();
     } else if (state && !state.ok) {
       toast.error(state.error);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setValue(role); // roll the dropdown back if the server rejected it
     }
-  }, [state, router]);
+  }, [state, role, router]);
+
+  const onChange = (next: UserRole) => {
+    setValue(next);
+    // Confirm any change that grants or revokes full Administrator access.
+    if (next === "admin" || role === "admin") {
+      setPending(next);
+    } else {
+      formRef.current?.requestSubmit();
+    }
+  };
+
+  const cancelPending = () => {
+    setPending(null);
+    setValue(role);
+  };
 
   return (
-    <form action={formAction} className="inline">
-      <input type="hidden" name="userId" value={userId} />
-      <NativeSelect
-        name="role"
-        defaultValue={role}
-        className="h-8 w-44 text-xs"
-        onChange={(e) => {
-          const next = e.currentTarget.value as UserRole;
-          // Confirm any change that grants or revokes full Administrator access.
-          if (
-            (next === "admin" || role === "admin") &&
-            !window.confirm(
-              next === "admin"
-                ? "Grant full Administrator access to this user?"
-                : "Remove this user's Administrator access?",
-            )
-          ) {
-            e.currentTarget.value = role;
-            return;
-          }
-          e.currentTarget.form?.requestSubmit();
-        }}
-      >
-        {ROLE_OPTIONS.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
-          </option>
-        ))}
-      </NativeSelect>
-    </form>
+    <>
+      <form ref={formRef} action={formAction} className="inline">
+        <input type="hidden" name="userId" value={userId} />
+        <NativeSelect
+          name="role"
+          value={value}
+          className="h-8 w-44 text-xs"
+          onChange={(e) => onChange(e.currentTarget.value as UserRole)}
+        >
+          {ROLE_OPTIONS.map((r) => (
+            <option key={r} value={r}>
+              {ROLE_LABELS[r]}
+            </option>
+          ))}
+        </NativeSelect>
+      </form>
+
+      <Dialog open={pending !== null} onOpenChange={(o) => { if (!o) cancelPending(); }}>
+        <DialogContent showCloseButton={false} className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {pending === "admin"
+                ? "Grant administrator access?"
+                : "Change administrator access?"}
+            </DialogTitle>
+            <DialogDescription>
+              {pending === "admin"
+                ? "This gives the user full control of the company — people, projects, money and all data."
+                : "This removes the user's full administrator access. They keep only the permissions of their new role."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={cancelPending}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setPending(null);
+                formRef.current?.requestSubmit();
+              }}
+            >
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

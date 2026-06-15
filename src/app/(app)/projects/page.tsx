@@ -18,6 +18,7 @@ import { CreateProjectDialog } from "./dialogs";
 
 export default async function ProjectsPage() {
   const user = await requireCapability("projects.view");
+  const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
     const projects = await tx
@@ -83,11 +84,11 @@ export default async function ProjectsPage() {
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Active projects" value={activeCount} sub={`${data.projects.length} total`} />
-        <StatCard label="Contract value" value={formatMoney(totalContract, "AED", { compact: true })} />
-        <StatCard label="Budget" value={formatMoney(totalBudget, "AED", { compact: true })} />
+        <StatCard label="Contract value" value={formatMoney(totalContract, currency, { compact: true })} />
+        <StatCard label="Budget" value={formatMoney(totalBudget, currency, { compact: true })} />
         <StatCard
           label="Forecast vs budget"
-          value={formatMoney(totalForecast - totalBudget, "AED", { compact: true })}
+          value={formatMoney(totalForecast - totalBudget, currency, { compact: true })}
           tone={totalForecast > totalBudget * 1.03 ? "warning" : "good"}
           sub={totalForecast > totalBudget ? "over budget" : "within budget"}
         />
@@ -135,13 +136,13 @@ export default async function ProjectsPage() {
                     <td className="px-4 py-2.5">
                       <ProgressMeter value={num(p.progress)} tone="info" />
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(budget)}</td>
-                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(forecast)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(budget, currency)}</td>
+                    <td className="px-4 py-2.5 text-right tabular">{formatMoney(forecast, currency)}</td>
                     <td
                       className={`px-4 py-2.5 text-right tabular ${variance > 0 ? "text-critical" : "text-good"}`}
                     >
                       {variance > 0 ? "+" : ""}
-                      {formatMoney(variance)}
+                      {formatMoney(variance, currency)}
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1.5">

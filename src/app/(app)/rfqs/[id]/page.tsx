@@ -33,7 +33,8 @@ export default async function RfqDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireCapability("procurement.manage");
+  const user = await requireCapability("procurement.manage");
+  const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
     const [rfq] = await tx
@@ -292,7 +293,7 @@ export default async function RfqDetailPage({
         />
         <StatCard
           label="Best price"
-          value={bestPrice !== null ? formatMoney(bestPrice) : "—"}
+          value={bestPrice !== null ? formatMoney(bestPrice, currency) : "—"}
           tone={bestPrice !== null ? "good" : "neutral"}
           icon={<BadgeDollarSign className="size-4" />}
         />
@@ -379,7 +380,7 @@ export default async function RfqDetailPage({
                                   : "text-muted-foreground"
                             }`}
                           >
-                            {has ? formatMoney(cell!.unitPrice) : "—"}
+                            {has ? formatMoney(cell!.unitPrice, currency) : "—"}
                           </td>
                         );
                       })}
@@ -398,7 +399,7 @@ export default async function RfqDetailPage({
                         key={q.id}
                         className={`px-4 py-2.5 text-right tabular ${isLowest ? "font-semibold text-good" : ""}`}
                       >
-                        {formatMoney(total)}
+                        {formatMoney(total, currency)}
                       </td>
                     );
                   })}
@@ -501,10 +502,10 @@ export default async function RfqDetailPage({
                           <td
                             className={`px-4 py-2.5 text-right tabular ${isBestPrice ? "font-semibold text-good" : ""}`}
                           >
-                            {formatMoney(total)}
+                            {formatMoney(total, currency)}
                           </td>
                           <td className="px-4 py-2.5 text-right tabular text-muted-foreground">
-                            {formatMoney(unitPrice)}
+                            {formatMoney(unitPrice, currency)}
                           </td>
                           <td
                             className={`px-4 py-2.5 text-right tabular ${isBestLead ? "font-semibold text-good" : ""}`}
@@ -525,6 +526,7 @@ export default async function RfqDetailPage({
                             quoteId={q.id}
                             vendorName={q.vendorName}
                             lines={dialogLines}
+                            currency={currency}
                           />
                         )}
                         {canAward && q.status === "received" && (
@@ -543,6 +545,7 @@ export default async function RfqDetailPage({
                                 paymentTerms: q.paymentTerms,
                                 prices: pricesForQuote(q.id),
                               }}
+                              currency={currency}
                             />
                             {complete ? (
                               <ActionButton

@@ -56,6 +56,13 @@ export const taskStatus = pgEnum("task_status", [
   "done",
 ]);
 
+export const taskPriority = pgEnum("task_priority", [
+  "low",
+  "medium",
+  "high",
+  "urgent",
+]);
+
 export const milestoneStatus = pgEnum("milestone_status", [
   "pending",
   "reached",
@@ -369,6 +376,7 @@ export const tasks = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     status: taskStatus("status").notNull().default("not_started"),
+    priority: taskPriority("priority").notNull().default("medium"),
     progress: pct("progress").notNull().default("0"),
     startDate: date("start_date"),
     dueDate: date("due_date"),
@@ -380,6 +388,40 @@ export const tasks = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("tasks_project_idx").on(t.projectId)],
+);
+
+/** Subtasks / punch-list items checked off within a task. */
+export const taskChecklistItems = pgTable(
+  "task_checklist_items",
+  {
+    id: id(),
+    companyId: companyId(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    isDone: boolean("is_done").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("checklist_task_idx").on(t.taskId)],
+);
+
+/** Threaded discussion / activity captured against a task. */
+export const taskComments = pgTable(
+  "task_comments",
+  {
+    id: id(),
+    companyId: companyId(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    authorName: text("author_name").notNull(),
+    body: text("body").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("comments_task_idx").on(t.taskId)],
 );
 
 export const taskDependencies = pgTable(
@@ -921,6 +963,8 @@ export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type WbsCode = typeof wbsCodes.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;
+export type TaskComment = typeof taskComments.$inferSelect;
 export type Milestone = typeof milestones.$inferSelect;
 export type ProjectRequirement = typeof projectRequirements.$inferSelect;
 export type Vendor = typeof vendors.$inferSelect;
@@ -938,3 +982,5 @@ export type Approval = typeof approvals.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type UserRole = (typeof userRole.enumValues)[number];
 export type Severity = (typeof severity.enumValues)[number];
+export type TaskStatus = (typeof taskStatus.enumValues)[number];
+export type TaskPriority = (typeof taskPriority.enumValues)[number];
