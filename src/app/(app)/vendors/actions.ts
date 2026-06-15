@@ -1,0 +1,104 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { db } from "@/lib/auth/context";
+import { can } from "@/lib/rbac";
+import { audit } from "@/lib/audit";
+import { VENDOR_CATEGORIES } from "@/lib/constants";
+import * as t from "@/db/schema";
+import { parseForm, ok, fail, type ActionState } from "@/lib/forms";
+
+/** Round to 2 dp for the rating numeric(3,2) column, clamped 0–5. */
+const rating = (n: number) =>
+  (Math.round(Math.max(0, Math.min(5, n)) * 100) / 100).toFixed(2);
+
+const vendorSchema = z.object({
+  name: z.string().min(2, "Name is required"),
+  code: z.string().optional(),
+  category: z.enum(VENDOR_CATEGORIES).optional(),
+  contactName: z.string().optional(),
+  email: z.string().email("Enter a valid email").optional(),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  isSubcontractor: z.literal("on").optional(),
+  rating: z.coerce.number().min(0).max(5).default(0),
+  notes: z.string().optional(),
+});
+
+export async function createVendor(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(vendorSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "vendors.manage")) return fail("You don't have permission");
+    const [vendor] = await tx
+      .insert(t.vendors)
+      .values({
+        companyId: ctx.companyId,
+        name: d.name,
+        code: d.code ?? null,
+        category: d.category ?? null,
+        contactName: d.contactName ?? null,
+        email: d.email ?? null,
+        phone: d.phone ?? null,
+        address: d.address ?? null,
+        isSubcontractor: d.isSubcontractor === "on",
+        rating: rating(d.rating),
+        notes: d.notes ?? null,
+      })
+      .returning();
+    await audit(tx, ctx, {
+      action: "vendor.create",
+      entityType: "vendor",
+      entityId: vendor.id,
+      summary: `Added vendor ${vendor.name}`,
+    });
+    revalidatePath("/vendors");
+    return ok("Vendor added", `/vendors/${vendor.id}`);
+  });
+}
+
+export async function updateVendor(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const vendorId = String(formData.get("vendorId") ?? "");
+  const parsed = parseForm(vendorSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "vendors.manage")) return fail("You don't have permission");
+    const [vendor] = await tx
+      .update(t.vendors)
+      .set({
+        name: d.name,
+        code: d.code ?? null,
+        category: d.category ?? null,
+        contactName: d.contactName ?? null,
+        email: d.email ?? null,
+        phone: d.phone ?? null,
+        address: d.address ?? null,
+        isSubcontractor: d.isSubcontractor === "on",
+        rating: rating(d.rating),
+        notes: d.notes ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(t.vendors.id, vendorId))
+      .returning();
+    if (!vendor) return fail("Vendor not found");
+    await audit(tx, ctx, {
+      action: "vendor.update",
+      entityType: "vendor",
+      entityId: vendor.id,
+      summary: `Updated vendor ${vendor.name}`,
+    });
+    revalidatePath("/vendors");
+    revalidatePath(`/vendors/${vendorId}`);
+    return ok("Vendor updated");
+  });
+}

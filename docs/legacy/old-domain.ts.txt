@@ -1,0 +1,962 @@
+import type { ElementType } from 'react'
+import {
+  BadgeDollarSign,
+  Boxes,
+  BriefcaseBusiness,
+  ClipboardCheck,
+  Factory,
+  FileCheck2,
+  LayoutDashboard,
+  RadioTower,
+  ShieldCheck,
+  Truck,
+  UsersRound,
+} from 'lucide-react'
+
+export type Severity = 'critical' | 'warning' | 'good' | 'neutral'
+export type Industry = 'Construction' | 'Manufacturing'
+export type Module =
+  | 'Dashboard'
+  | 'Projects'
+  | 'Field'
+  | 'Materials'
+  | 'Procurement'
+  | 'Production'
+  | 'Labor'
+  | 'Money'
+  | 'Approvals'
+  | 'Reports'
+  | 'Security'
+
+export type Project = {
+  id: string
+  name: string
+  client: string
+  type: Industry
+  location: string
+  stage: string
+  health: Severity
+  completion: number
+  deadline: string
+  scheduleDelta: number
+  budget: number
+  committed: number
+  actual: number
+  forecast: number
+  billed: number
+  cashCollected: number
+  margin: number
+  plannedMargin: number
+  laborCoverage: number
+  materialCoverage: number
+  openRisk: string
+  nextBestAction: string
+}
+
+export type Material = {
+  id: string
+  item: string
+  projectId: string
+  needed: number
+  onHand: number
+  inbound: number
+  unit: string
+  eta: string
+  reorderPoint: number
+  vendor: string
+  status: Severity
+  delayDays: number
+  costImpact: number
+  scheduleImpact: number
+  owner: string
+  linkedPoId: string
+}
+
+export type Crew = {
+  id: string
+  name: string
+  projectId: string
+  planned: number
+  assigned: number
+  productivity: number
+  overtime: number
+  status: Severity
+  skill: string
+  nextBlocker: string
+}
+
+export type ApprovalStatus = 'Open' | 'Approved' | 'Rejected'
+
+export type Approval = {
+  id: string
+  type: string
+  title: string
+  projectId: string
+  amount: number
+  age: string
+  owner: string
+  risk: string
+  status: ApprovalStatus
+}
+
+export type ActionItem = {
+  id: string
+  severity: Severity
+  title: string
+  detail: string
+  projectId: string
+  impact: string
+  action: string
+}
+
+export type Vendor = {
+  id: string
+  name: string
+  score: number
+  risk: string
+  spend: number
+  onTimeRate: number
+  defectRate: number
+}
+
+export type PurchaseOrder = {
+  id: string
+  projectId: string
+  vendorId: string
+  materialId: string
+  title: string
+  amount: number
+  status: 'Draft' | 'Waiting approval' | 'Released' | 'Partially received' | 'Received' | 'Matched'
+  ordered: number
+  received: number
+  invoiceMatched: boolean
+  eta: string
+  owner: string
+}
+
+export type FieldItem = {
+  id: string
+  projectId: string
+  kind: 'RFI' | 'Submittal' | 'Daily log' | 'Issue'
+  title: string
+  status: 'Draft' | 'Open' | 'In review' | 'Answered' | 'Closed'
+  ballInCourt: string
+  scheduleImpact: number
+  costImpact: number
+  due: string
+}
+
+export type ChangeOrder = {
+  id: string
+  projectId: string
+  title: string
+  status: 'Potential' | 'Quoted' | 'Submitted' | 'Approved'
+  revenue: number
+  cost: number
+  scheduleImpact: number
+  owner: string
+}
+
+export type WorkOrder = {
+  id: string
+  projectId: string
+  item: string
+  quantity: number
+  completed: number
+  cell: string
+  status: 'Planned' | 'Released' | 'Blocked' | 'In production' | 'Complete'
+  bomReady: number
+  laborReady: number
+  due: string
+  blocker: string
+}
+
+export type AuditEvent = {
+  id: string
+  actor: string
+  action: string
+  target: string
+  at: string
+  risk: Severity
+}
+
+export type Role = {
+  name: string
+  users: number
+  access: string
+  risk: Severity
+}
+
+export type User = {
+  id: string
+  name: string
+  email: string
+  roleName: string
+}
+
+export type Invoice = {
+  id: string
+  projectId: string
+  amount: number
+  cashCollected: number
+  status: 'Submitted'
+  createdAt: string
+  createdBy: string
+}
+
+export type Attachment = {
+  id: string
+  entityType: 'project' | 'material' | 'field-item' | 'purchase-order' | 'work-order' | 'invoice'
+  entityId: string
+  filename: string
+  mimeType: string
+  sizeBytes: number
+  storageKey: string
+  description: string
+  createdAt: string
+  uploadedBy: string
+}
+
+export type TimelineEvent = {
+  id: string
+  projectId: string | null
+  kind: string
+  title: string
+  detail: string
+  occurredAt: string
+  createdBy: string
+  metadataJson: string
+}
+
+export type NotificationStatus = 'Unread' | 'Read'
+
+export type Notification = {
+  id: string
+  userId: string | null
+  projectId: string | null
+  title: string
+  body: string
+  severity: Severity
+  status: NotificationStatus
+  dueAt: string | null
+  createdAt: string
+  createdBy: string
+}
+
+export type ExportRun = {
+  id: string
+  type: 'snapshot' | 'projects' | 'materials' | 'money'
+  fileName: string
+  createdAt: string
+  createdBy: string
+  payloadJson: string
+}
+
+export type ReportView = {
+  id: string
+  title: string
+  description: string
+  owner: string
+  cadence: string
+}
+
+export type ReportRun = {
+  id: string
+  reportId: string
+  title: string
+  generatedAt: string
+  generatedBy: string
+  status: 'Ready'
+}
+
+export const modules: { label: Module; icon: ElementType }[] = [
+  { label: 'Dashboard', icon: LayoutDashboard },
+  { label: 'Projects', icon: BriefcaseBusiness },
+  { label: 'Field', icon: RadioTower },
+  { label: 'Materials', icon: Boxes },
+  { label: 'Procurement', icon: Truck },
+  { label: 'Production', icon: Factory },
+  { label: 'Labor', icon: UsersRound },
+  { label: 'Money', icon: BadgeDollarSign },
+  { label: 'Approvals', icon: ClipboardCheck },
+  { label: 'Reports', icon: FileCheck2 },
+  { label: 'Security', icon: ShieldCheck },
+]
+
+export const projects: Project[] = [
+  {
+    id: 'p1',
+    name: 'Riverside Mixed-Use',
+    client: 'Northline Development',
+    type: 'Construction',
+    location: 'Austin, TX',
+    stage: 'Structure',
+    health: 'critical',
+    completion: 61,
+    deadline: 'Jul 24',
+    scheduleDelta: 6,
+    budget: 1240000,
+    committed: 931000,
+    actual: 812000,
+    forecast: 1318000,
+    billed: 604000,
+    cashCollected: 438000,
+    margin: 9.8,
+    plannedMargin: 16.4,
+    laborCoverage: 78,
+    materialCoverage: 66,
+    openRisk: 'Steel package delayed; crane crew idle risk tomorrow.',
+    nextBestAction: 'Approve alternate steel supplier and resequence crane crew to level 3 embeds.',
+  },
+  {
+    id: 'p2',
+    name: 'Horizon Pump Assembly',
+    client: 'Avion Water Systems',
+    type: 'Manufacturing',
+    location: 'Mesa, AZ',
+    stage: 'Production run',
+    health: 'warning',
+    completion: 44,
+    deadline: 'Aug 08',
+    scheduleDelta: 2,
+    budget: 680000,
+    committed: 402000,
+    actual: 309000,
+    forecast: 701000,
+    billed: 211000,
+    cashCollected: 176000,
+    margin: 14.1,
+    plannedMargin: 17.5,
+    laborCoverage: 92,
+    materialCoverage: 81,
+    openRisk: 'Valve housings need buyer approval for expedited freight.',
+    nextBestAction: 'Release valve PO and move assembly cell B to short-batch plan until inbound receipt.',
+  },
+  {
+    id: 'p3',
+    name: 'Cedar Clinic Renovation',
+    client: 'Evergreen Health',
+    type: 'Construction',
+    location: 'Nashville, TN',
+    stage: 'MEP rough-in',
+    health: 'good',
+    completion: 73,
+    deadline: 'Jun 30',
+    scheduleDelta: -1,
+    budget: 510000,
+    committed: 388000,
+    actual: 341000,
+    forecast: 492000,
+    billed: 322000,
+    cashCollected: 284000,
+    margin: 19.2,
+    plannedMargin: 18.1,
+    laborCoverage: 104,
+    materialCoverage: 96,
+    openRisk: 'Inspection window confirmed; keep daily photo logs current.',
+    nextBestAction: 'Submit milestone invoice and archive inspection photo package.',
+  },
+  {
+    id: 'p4',
+    name: 'Foundry Line Upgrade',
+    client: 'Marsten Components',
+    type: 'Manufacturing',
+    location: 'Cleveland, OH',
+    stage: 'Installation',
+    health: 'warning',
+    completion: 52,
+    deadline: 'Jul 17',
+    scheduleDelta: 3,
+    budget: 890000,
+    committed: 634000,
+    actual: 501000,
+    forecast: 917000,
+    billed: 405000,
+    cashCollected: 312000,
+    margin: 12.6,
+    plannedMargin: 15.9,
+    laborCoverage: 84,
+    materialCoverage: 88,
+    openRisk: 'Controls specialist short two shifts next week.',
+    nextBestAction: 'Approve weekend coverage and lock PLC cabinet receiving appointment.',
+  },
+]
+
+export const materials: Material[] = [
+  {
+    id: 'm1',
+    item: 'W12 steel beams',
+    projectId: 'p1',
+    needed: 86,
+    onHand: 31,
+    inbound: 40,
+    unit: 'pcs',
+    eta: 'Jun 11',
+    reorderPoint: 58,
+    vendor: 'Lone Star Steel',
+    status: 'critical',
+    delayDays: 5,
+    costImpact: 28400,
+    scheduleImpact: 5,
+    owner: 'Maya',
+    linkedPoId: 'po1',
+  },
+  {
+    id: 'm2',
+    item: 'Valve housings',
+    projectId: 'p2',
+    needed: 420,
+    onHand: 230,
+    inbound: 150,
+    unit: 'ea',
+    eta: 'Jun 09',
+    reorderPoint: 280,
+    vendor: 'Keller Castings',
+    status: 'warning',
+    delayDays: 2,
+    costImpact: 9600,
+    scheduleImpact: 2,
+    owner: 'Dev',
+    linkedPoId: 'po2',
+  },
+  {
+    id: 'm3',
+    item: 'Copper conduit',
+    projectId: 'p3',
+    needed: 1800,
+    onHand: 1420,
+    inbound: 480,
+    unit: 'ft',
+    eta: 'Jun 06',
+    reorderPoint: 900,
+    vendor: 'TriState Electrical',
+    status: 'good',
+    delayDays: 0,
+    costImpact: -4200,
+    scheduleImpact: -1,
+    owner: 'Elena',
+    linkedPoId: 'po3',
+  },
+  {
+    id: 'm4',
+    item: 'PLC control cabinets',
+    projectId: 'p4',
+    needed: 14,
+    onHand: 9,
+    inbound: 5,
+    unit: 'ea',
+    eta: 'Jun 14',
+    reorderPoint: 10,
+    vendor: 'Forge Automation',
+    status: 'warning',
+    delayDays: 3,
+    costImpact: 13100,
+    scheduleImpact: 3,
+    owner: 'Ravi',
+    linkedPoId: 'po4',
+  },
+  {
+    id: 'm5',
+    item: 'Prefabricated bath pods',
+    projectId: 'p1',
+    needed: 34,
+    onHand: 16,
+    inbound: 18,
+    unit: 'ea',
+    eta: 'Jun 18',
+    reorderPoint: 18,
+    vendor: 'Modular Build Co',
+    status: 'warning',
+    delayDays: 1,
+    costImpact: 7200,
+    scheduleImpact: 1,
+    owner: 'Maya',
+    linkedPoId: 'po5',
+  },
+]
+
+export const crews: Crew[] = [
+  {
+    id: 'c1',
+    name: 'Crane + ironworker crew',
+    projectId: 'p1',
+    planned: 12,
+    assigned: 9,
+    productivity: 71,
+    overtime: 18,
+    status: 'critical',
+    skill: 'Structural steel',
+    nextBlocker: 'Steel delivery confirmation due today',
+  },
+  {
+    id: 'c2',
+    name: 'Assembly cell B',
+    projectId: 'p2',
+    planned: 18,
+    assigned: 17,
+    productivity: 88,
+    overtime: 6,
+    status: 'warning',
+    skill: 'Pump assembly',
+    nextBlocker: 'Part shortage after 230 units',
+  },
+  {
+    id: 'c3',
+    name: 'Electrical rough-in',
+    projectId: 'p3',
+    planned: 7,
+    assigned: 8,
+    productivity: 96,
+    overtime: 0,
+    status: 'good',
+    skill: 'Electrical',
+    nextBlocker: 'Inspection photos pending',
+  },
+  {
+    id: 'c4',
+    name: 'Controls installation',
+    projectId: 'p4',
+    planned: 6,
+    assigned: 4,
+    productivity: 76,
+    overtime: 11,
+    status: 'warning',
+    skill: 'PLC controls',
+    nextBlocker: 'Specialist coverage for Tue/Wed',
+  },
+]
+
+export const initialApprovals: Approval[] = [
+  {
+    id: 'a1',
+    type: 'Change order',
+    title: 'Alternate steel supplier + freight',
+    projectId: 'p1',
+    amount: 28400,
+    age: '7h',
+    owner: 'Owner approval',
+    risk: 'Blocks level 4 framing by Monday',
+    status: 'Open',
+  },
+  {
+    id: 'a2',
+    type: 'Purchase order',
+    title: 'Expedite valve housings',
+    projectId: 'p2',
+    amount: 9600,
+    age: '1d',
+    owner: 'Procurement',
+    risk: 'Assembly cell B stops after current inventory',
+    status: 'Open',
+  },
+  {
+    id: 'a3',
+    type: 'Overtime',
+    title: 'Controls specialist weekend coverage',
+    projectId: 'p4',
+    amount: 4200,
+    age: '2d',
+    owner: 'Ops manager',
+    risk: 'Line commissioning slips into following week',
+    status: 'Open',
+  },
+  {
+    id: 'a4',
+    type: 'Invoice',
+    title: 'Electrical rough-in milestone billing',
+    projectId: 'p3',
+    amount: 78500,
+    age: '3h',
+    owner: 'Finance',
+    risk: 'Cash collection delayed if not submitted today',
+    status: 'Open',
+  },
+]
+
+export const actions: ActionItem[] = [
+  {
+    id: 't1',
+    severity: 'critical',
+    title: 'Approve steel recovery plan',
+    detail: 'Missing beams block level 4 framing by Monday.',
+    projectId: 'p1',
+    impact: '+5 days, -$28.4k margin risk',
+    action: 'Open steel plan',
+  },
+  {
+    id: 't2',
+    severity: 'warning',
+    title: 'Assign controls specialist',
+    detail: 'Foundry line install needs two additional shifts.',
+    projectId: 'p4',
+    impact: '+3 days unless covered',
+    action: 'Book coverage',
+  },
+  {
+    id: 't3',
+    severity: 'warning',
+    title: 'Release expedited valve PO',
+    detail: 'Assembly cell B runs out after current inventory.',
+    projectId: 'p2',
+    impact: '$9.6k cost or 2-day slip',
+    action: 'Release PO',
+  },
+  {
+    id: 't4',
+    severity: 'good',
+    title: 'Send clinic progress invoice',
+    detail: 'Milestone passed and documentation is complete.',
+    projectId: 'p3',
+    impact: '+$78.5k cash collection',
+    action: 'Create invoice',
+  },
+]
+
+export const vendors: Vendor[] = [
+  {
+    id: 'v1',
+    name: 'Lone Star Steel',
+    score: 72,
+    risk: 'Late delivery pattern',
+    spend: 188000,
+    onTimeRate: 76,
+    defectRate: 2.8,
+  },
+  {
+    id: 'v2',
+    name: 'Keller Castings',
+    score: 81,
+    risk: 'Expedite required',
+    spend: 94000,
+    onTimeRate: 84,
+    defectRate: 1.7,
+  },
+  {
+    id: 'v3',
+    name: 'TriState Electrical',
+    score: 96,
+    risk: 'On track',
+    spend: 66000,
+    onTimeRate: 98,
+    defectRate: 0.3,
+  },
+  {
+    id: 'v4',
+    name: 'Forge Automation',
+    score: 84,
+    risk: 'Specialist dependency',
+    spend: 121000,
+    onTimeRate: 86,
+    defectRate: 1.2,
+  },
+  {
+    id: 'v5',
+    name: 'Modular Build Co',
+    score: 79,
+    risk: 'Capacity tight',
+    spend: 143000,
+    onTimeRate: 82,
+    defectRate: 1.5,
+  },
+]
+
+export const purchaseOrders: PurchaseOrder[] = [
+  {
+    id: 'po1',
+    projectId: 'p1',
+    vendorId: 'v1',
+    materialId: 'm1',
+    title: 'Steel beam release 3',
+    amount: 188000,
+    status: 'Waiting approval',
+    ordered: 86,
+    received: 31,
+    invoiceMatched: false,
+    eta: 'Jun 11',
+    owner: 'Maya',
+  },
+  {
+    id: 'po2',
+    projectId: 'p2',
+    vendorId: 'v2',
+    materialId: 'm2',
+    title: 'Valve housing expedite',
+    amount: 9600,
+    status: 'Draft',
+    ordered: 420,
+    received: 230,
+    invoiceMatched: false,
+    eta: 'Jun 09',
+    owner: 'Dev',
+  },
+  {
+    id: 'po3',
+    projectId: 'p3',
+    vendorId: 'v3',
+    materialId: 'm3',
+    title: 'Copper conduit phase 2',
+    amount: 66000,
+    status: 'Matched',
+    ordered: 1800,
+    received: 1420,
+    invoiceMatched: true,
+    eta: 'Jun 06',
+    owner: 'Elena',
+  },
+  {
+    id: 'po4',
+    projectId: 'p4',
+    vendorId: 'v4',
+    materialId: 'm4',
+    title: 'PLC cabinet package',
+    amount: 121000,
+    status: 'Partially received',
+    ordered: 14,
+    received: 9,
+    invoiceMatched: false,
+    eta: 'Jun 14',
+    owner: 'Ravi',
+  },
+  {
+    id: 'po5',
+    projectId: 'p1',
+    vendorId: 'v5',
+    materialId: 'm5',
+    title: 'Bath pod release 2',
+    amount: 143000,
+    status: 'Released',
+    ordered: 34,
+    received: 16,
+    invoiceMatched: false,
+    eta: 'Jun 18',
+    owner: 'Maya',
+  },
+]
+
+export const fieldItems: FieldItem[] = [
+  {
+    id: 'f1',
+    projectId: 'p1',
+    kind: 'RFI',
+    title: 'Confirm beam splice detail at grid C4',
+    status: 'Open',
+    ballInCourt: 'Structural engineer',
+    scheduleImpact: 2,
+    costImpact: 6800,
+    due: 'Jun 07',
+  },
+  {
+    id: 'f2',
+    projectId: 'p1',
+    kind: 'Submittal',
+    title: 'Bath pod fire rating package',
+    status: 'In review',
+    ballInCourt: 'Architect',
+    scheduleImpact: 1,
+    costImpact: 0,
+    due: 'Jun 10',
+  },
+  {
+    id: 'f3',
+    projectId: 'p3',
+    kind: 'Daily log',
+    title: 'MEP rough-in inspection photo set',
+    status: 'Closed',
+    ballInCourt: 'Elena',
+    scheduleImpact: -1,
+    costImpact: -4200,
+    due: 'Jun 05',
+  },
+  {
+    id: 'f4',
+    projectId: 'p4',
+    kind: 'Issue',
+    title: 'PLC cabinet power isolation window',
+    status: 'Open',
+    ballInCourt: 'Plant manager',
+    scheduleImpact: 2,
+    costImpact: 3100,
+    due: 'Jun 12',
+  },
+]
+
+export const changeOrders: ChangeOrder[] = [
+  {
+    id: 'co1',
+    projectId: 'p1',
+    title: 'Alternate steel source and freight',
+    status: 'Submitted',
+    revenue: 35600,
+    cost: 28400,
+    scheduleImpact: -3,
+    owner: 'Maya',
+  },
+  {
+    id: 'co2',
+    projectId: 'p4',
+    title: 'Weekend controls support',
+    status: 'Quoted',
+    revenue: 6800,
+    cost: 4200,
+    scheduleImpact: -2,
+    owner: 'Ravi',
+  },
+  {
+    id: 'co3',
+    projectId: 'p3',
+    title: 'Exam room conduit reroute credit',
+    status: 'Approved',
+    revenue: -1200,
+    cost: -4200,
+    scheduleImpact: -1,
+    owner: 'Elena',
+  },
+]
+
+export const workOrders: WorkOrder[] = [
+  {
+    id: 'wo1',
+    projectId: 'p2',
+    item: 'Horizon pump assembly batch 4',
+    quantity: 420,
+    completed: 230,
+    cell: 'Assembly cell B',
+    status: 'Blocked',
+    bomReady: 81,
+    laborReady: 94,
+    due: 'Jun 19',
+    blocker: 'Valve housings short after 230 units',
+  },
+  {
+    id: 'wo2',
+    projectId: 'p4',
+    item: 'Foundry line PLC cabinet install',
+    quantity: 14,
+    completed: 9,
+    cell: 'Controls bay',
+    status: 'In production',
+    bomReady: 88,
+    laborReady: 67,
+    due: 'Jun 21',
+    blocker: 'Controls specialist coverage',
+  },
+  {
+    id: 'wo3',
+    projectId: 'p1',
+    item: 'Steel level 4 framing sequence',
+    quantity: 86,
+    completed: 31,
+    cell: 'Tower crane window',
+    status: 'Blocked',
+    bomReady: 66,
+    laborReady: 78,
+    due: 'Jun 17',
+    blocker: 'Steel beam receipt',
+  },
+]
+
+export const roles: Role[] = [
+  { name: 'Admin', users: 1, access: 'All modules, reset, security administration', risk: 'good' },
+  { name: 'Executive', users: 3, access: 'Portfolio, reports, approvals', risk: 'good' },
+  { name: 'Project manager', users: 9, access: 'Projects, field, money, approvals', risk: 'good' },
+  { name: 'Procurement', users: 5, access: 'Vendors, POs, material receipts', risk: 'warning' },
+  { name: 'Field lead', users: 24, access: 'Daily logs, RFIs, photos, labor', risk: 'good' },
+  { name: 'Finance', users: 6, access: 'Invoices, cost codes, cash, audit', risk: 'good' },
+]
+
+export const users: User[] = [
+  { id: 'u1', name: 'Avery Stone', email: 'admin@buildflow.local', roleName: 'Admin' },
+  { id: 'u2', name: 'Maya Patel', email: 'maya@buildflow.local', roleName: 'Project manager' },
+  { id: 'u3', name: 'Dev Rao', email: 'dev@buildflow.local', roleName: 'Procurement' },
+  { id: 'u4', name: 'Elena Garcia', email: 'elena@buildflow.local', roleName: 'Field lead' },
+  { id: 'u5', name: 'Nora Kim', email: 'finance@buildflow.local', roleName: 'Finance' },
+]
+
+export const reportViews: ReportView[] = [
+  {
+    id: 'r1',
+    title: 'Margin at risk by cost code',
+    description: 'Groups budget, actual, committed, and forecast variance by job.',
+    owner: 'Finance',
+    cadence: 'Weekly',
+  },
+  {
+    id: 'r2',
+    title: 'Open RFI schedule impact',
+    description: 'Ranks field blockers by due date, ball-in-court, day impact, and cost exposure.',
+    owner: 'Project manager',
+    cadence: 'Daily',
+  },
+  {
+    id: 'r3',
+    title: 'Supplier late receipts',
+    description: 'Shows purchase orders, vendors, material coverage, ETA, and shortage risk.',
+    owner: 'Procurement',
+    cadence: 'Daily',
+  },
+  {
+    id: 'r4',
+    title: 'Weekly owner packet',
+    description: 'Combines progress, cash, change events, open approvals, and audit activity.',
+    owner: 'Executive',
+    cadence: 'Weekly',
+  },
+]
+
+export const auditSeed: AuditEvent[] = [
+  {
+    id: 'ev1',
+    actor: 'System',
+    action: 'Synced accounting sandbox',
+    target: 'Invoices and vendor bills',
+    at: '8:45 AM',
+    risk: 'good',
+  },
+  {
+    id: 'ev2',
+    actor: 'Maya',
+    action: 'Uploaded delivery photos',
+    target: 'Riverside Mixed-Use',
+    at: '9:12 AM',
+    risk: 'neutral',
+  },
+  {
+    id: 'ev3',
+    actor: 'Dev',
+    action: 'Drafted expedited PO',
+    target: 'Valve housing expedite',
+    at: '10:03 AM',
+    risk: 'warning',
+  },
+]
+
+export const timeline = [
+  { label: 'Today', value: 'Steel decision', severity: 'critical' as Severity },
+  { label: 'Jun 09', value: 'Valve parts ETA', severity: 'warning' as Severity },
+  { label: 'Jun 14', value: 'PLC cabinet delivery', severity: 'warning' as Severity },
+  { label: 'Jun 30', value: 'Clinic handoff', severity: 'good' as Severity },
+  { label: 'Jul 24', value: 'Riverside target', severity: 'neutral' as Severity },
+]
+
+export const projectById = new Map(projects.map((project) => [project.id, project]))
+export const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]))
+export const materialById = new Map(materials.map((material) => [material.id, material]))
+export const crewByProjectId = new Map(crews.map((crew) => [crew.projectId, crew]))
+
+export function projectName(projectId: string) {
+  return projectById.get(projectId)?.name ?? 'Unassigned'
+}
+
+export function vendorName(vendorId: string) {
+  return vendorById.get(vendorId)?.name ?? 'Unknown vendor'
+}
+
+export function materialName(materialId: string) {
+  return materialById.get(materialId)?.item ?? 'Unknown material'
+}
+
+export function severityForPercent(value: number): Severity {
+  if (value < 75) return 'critical'
+  if (value < 90) return 'warning'
+  return 'good'
+}
