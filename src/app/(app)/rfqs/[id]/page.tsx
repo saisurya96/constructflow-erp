@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import {
   ArrowLeft,
   FileText,
@@ -94,11 +94,15 @@ export default async function RfqDetailPage({
       .innerJoin(t.vendorQuotes, eq(t.vendorQuotes.id, t.vendorQuoteLines.quoteId))
       .where(eq(t.vendorQuotes.rfqId, id));
 
-    // Award produces a PO referencing this RFQ; surface it when present.
+    // Award produces a PO referencing this RFQ; surface it when present. A
+    // cancel + re-award leaves multiple POs on the same RFQ, so take the most
+    // recent one — otherwise the page can surface a stale/cancelled PO (wrong
+    // number, and a spurious "Reopen" because the live PO looks cancelled).
     const [po] = await tx
       .select({ id: t.purchaseOrders.id, number: t.purchaseOrders.number, status: t.purchaseOrders.status })
       .from(t.purchaseOrders)
       .where(eq(t.purchaseOrders.rfqId, id))
+      .orderBy(desc(t.purchaseOrders.createdAt))
       .limit(1);
 
     // Active vendors not already invited — for the "invite vendor" picker.
@@ -261,13 +265,21 @@ export default async function RfqDetailPage({
       />
 
       {isAwarded && po && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-good/30 bg-good/5 px-3 py-2.5 text-sm">
-          <span className="inline-flex items-center gap-2 text-good">
-            <Trophy className="size-4" /> Awarded — purchase order {po.number} created.
-          </span>
-          <Button size="xs" variant="outline" render={<Link href={`/orders/${po.id}`} />}>
-            View {po.number}
-          </Button>
+        <div className="mb-4 space-y-1.5">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-good/30 bg-good/5 px-3 py-2.5 text-sm">
+            <span className="inline-flex items-center gap-2 text-good">
+              <Trophy className="size-4" /> Awarded — purchase order {po.number} created.
+            </span>
+            <Button size="xs" variant="outline" render={<Link href={`/orders/${po.id}`} />}>
+              View {po.number}
+            </Button>
+          </div>
+          {poLive && (
+            <p className="px-1 text-xs text-muted-foreground">
+              Awarded the wrong vendor? Cancel {po.number} to reopen this RFQ and
+              award a different quote.
+            </p>
+          )}
         </div>
       )}
 

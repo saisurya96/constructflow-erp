@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,17 +44,30 @@ export function ProjectStatusControl({
   status: string;
 }) {
   const [state, formAction] = useActionState(updateProjectStatus, null);
+  // Controlled value so the dropdown reflects the persisted status. An
+  // uncontrolled <select defaultValue> keeps its initial DOM value across
+  // revalidation, so after a successful change it would snap back to the old
+  // status (looking like the save failed). Adopt the server value when the
+  // prop updates, and roll back to it if the action errors.
+  const [value, setValue] = useState(status);
+  useEffect(() => setValue(status), [status]);
   useEffect(() => {
-    if (state && !state.ok) toast.error(state.error);
-  }, [state]);
+    if (state && !state.ok) {
+      toast.error(state.error);
+      setValue(status);
+    }
+  }, [state, status]);
   return (
     <form action={formAction}>
       <input type="hidden" name="projectId" value={projectId} />
       <NativeSelect
         name="status"
-        defaultValue={status}
+        value={value}
         className="h-8 w-40 text-xs"
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
+        onChange={(e) => {
+          setValue(e.currentTarget.value);
+          e.currentTarget.form?.requestSubmit();
+        }}
       >
         <option value="planning">Planning</option>
         <option value="active">Active</option>

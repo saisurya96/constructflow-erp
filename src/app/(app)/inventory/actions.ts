@@ -531,7 +531,12 @@ export async function postGoodsReceipt(
         const required = num(req.quantity);
         const received = recvMap.get(req.id) ?? 0;
         const allocated = allocMap.get(req.id) ?? 0;
-        const covered = received + allocated;
+        // Coverage must not double-count: allocations are reserved FROM the same
+        // stock that `received` already represents, so `received + allocated`
+        // over-states coverage — a short/partial receipt that is then fully
+        // reserved would wrongly read as fulfilled and hide the shortage. Take
+        // the max (conservative: never "fulfilled" unless genuinely covered).
+        const covered = Math.max(received, allocated);
         const status: t.ProjectRequirement["status"] =
           covered >= required - 1e-9 ? "fulfilled" : "partially_received";
         await tx
@@ -1037,7 +1042,11 @@ async function recomputeRequirementCoverage(
     .where(eq(t.purchaseOrderLines.requirementId, requirementId));
 
   const required = num(req.quantity);
-  const covered = num(allocRow?.q) + num(recvRow?.q);
+  // Coverage must not double-count: the allocated quantity is reserved from the
+  // same stock that `received` already counts, so `received + allocated` would
+  // over-state coverage and mark short receipts as fulfilled. Use max instead
+  // (conservative — only "fulfilled" when genuinely covered, never hides a short).
+  const covered = Math.max(num(allocRow?.q), num(recvRow?.q));
   let status: t.ProjectRequirement["status"];
   if (covered >= required - 1e-9) status = "fulfilled";
   else if (covered > 0) status = "partially_received";
