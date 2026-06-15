@@ -145,6 +145,14 @@ for every file. Two adjustments make the toolchain happy:
 
 Both are transparent — captured in the npm scripts.
 
+## Docs
+
+- [`CHANGELOG.md`](CHANGELOG.md) — what's been built and hardened.
+- [`docs/launch-readiness.md`](docs/launch-readiness.md) — production status and the
+  remaining gaps for the cloud cutover.
+- [`docs/legacy/`](docs/legacy/) — superseded planning artifacts from the earlier
+  "BuildFlow" SQLite prototype (historical only).
+
 ## Roadmap (demand-driven)
 
 Daily site logs / RFIs, richer scheduling (CPM/Gantt), equipment & plant,
