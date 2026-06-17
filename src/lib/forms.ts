@@ -44,10 +44,13 @@ export const zMoney = z.coerce.number().min(0).default(0);
 /** Money that may be negative — e.g. deductive/omission variations and credits. */
 export const zSignedMoney = z.coerce.number().default(0);
 export const zQty = z.coerce.number().positive();
-export const zOptionalDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date")
-  .optional();
-export const zRequiredDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date is required");
+/**
+ * A real calendar date in YYYY-MM-DD. The regex alone passes 2026-02-30, which
+ * then throws an unhandled Postgres error; round-tripping through Date confirms
+ * the day/month didn't roll over, so an invalid date becomes a field error.
+ */
+const isRealDate = (s: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(s) &&
+  new Date(s + "T00:00:00Z").toISOString().slice(0, 10) === s;
+export const zOptionalDate = z.string().refine(isRealDate, "Use a valid date").optional();
+export const zRequiredDate = z.string().refine(isRealDate, "Date is required");

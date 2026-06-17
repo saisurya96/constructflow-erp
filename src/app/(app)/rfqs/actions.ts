@@ -63,6 +63,24 @@ export async function createRfq(
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "procurement.manage")) return fail("You don't have permission");
 
+    // Only honor a requirement link that actually belongs to this RFQ's project
+    // and is still sourceable — RLS scopes the tenant, not the project, so a
+    // sibling-project requirement id from the form must not be linked or mutated.
+    let linkedReqId: string | null = null;
+    if (d.requirementId) {
+      const [req] = await tx
+        .select({ id: t.projectRequirements.id, status: t.projectRequirements.status })
+        .from(t.projectRequirements)
+        .where(
+          and(
+            eq(t.projectRequirements.id, d.requirementId),
+            eq(t.projectRequirements.projectId, d.projectId),
+          ),
+        )
+        .limit(1);
+      if (req && ["draft", "submitted", "sourcing"].includes(req.status)) linkedReqId = req.id;
+    }
+
     const number = await nextNumber(tx, ctx.companyId, "RFQ", "RFQ");
     const [rfq] = await tx
       .insert(t.rfqs)
@@ -85,7 +103,7 @@ export async function createRfq(
         companyId: ctx.companyId,
         rfqId: rfq.id,
         // Only the first line carries the linked requirement (if sourced from one).
-        requirementId: i === 0 ? (d.requirementId ?? null) : null,
+        requirementId: i === 0 ? linkedReqId : null,
         itemName: l.itemName,
         unit: l.unit,
         quantity: quantity(l.quantity),
@@ -110,11 +128,11 @@ export async function createRfq(
       })),
     );
 
-    if (d.requirementId) {
+    if (linkedReqId) {
       await tx
         .update(t.projectRequirements)
         .set({ status: "sourcing", updatedAt: new Date() })
-        .where(eq(t.projectRequirements.id, d.requirementId));
+        .where(eq(t.projectRequirements.id, linkedReqId));
     }
 
     await audit(tx, ctx, {

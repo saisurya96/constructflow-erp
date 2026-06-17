@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
-import type { Tx } from "@/db/client";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import { nextNumber } from "@/lib/numbering";
@@ -18,6 +17,7 @@ import {
   type ActionState,
 } from "@/lib/forms";
 import { money, quantity, num } from "@/lib/money";
+import { recomputeRequirementCoverage } from "@/lib/effects";
 
 /* ──────────────────────────── warehouses ───────────────────────────── */
 
@@ -605,14 +605,21 @@ export async function reverseGoodsReceipt(
       .where(eq(t.goodsReceiptLines.grnId, grnId));
     if (grnLines.length === 0) return fail("This receipt has no lines");
 
-    // Lock the parent order (if still present) so status recompute is consistent.
+    // Lock the parent order (if still present) so status recompute is consistent,
+    // and refuse to reverse a receipt whose order is already terminal: closing or
+    // cancelling it already released the outstanding commitment, so reinstating
+    // the received portion here would double-book cost and resurrect the order.
     if (grn.poId) {
-      await tx
-        .select({ id: t.purchaseOrders.id })
+      const [po] = await tx
+        .select({ status: t.purchaseOrders.status })
         .from(t.purchaseOrders)
         .where(eq(t.purchaseOrders.id, grn.poId))
         .limit(1)
         .for("update");
+      if (po && (po.status === "closed" || po.status === "cancelled"))
+        return fail(
+          "This receipt's order has been closed or cancelled — reverse that first if you need to correct received quantities.",
+        );
     }
 
     const poLineIds = grnLines
@@ -813,6 +820,39 @@ export async function reserveAllocation(
       .for("update"); // lock the row so concurrent reservations can't oversubscribe
     if (!item) return fail("Inventory item not found");
 
+    // RLS scopes the tenant, not the project — confirm every linked id belongs to
+    // the posted project so a sibling-project task/requirement/cost-code can't be
+    // cross-linked (which would unblock the wrong task or fake another job's coverage).
+    if (d.requirementId) {
+      const [req] = await tx
+        .select({ id: t.projectRequirements.id })
+        .from(t.projectRequirements)
+        .where(
+          and(
+            eq(t.projectRequirements.id, d.requirementId),
+            eq(t.projectRequirements.projectId, d.projectId),
+          ),
+        )
+        .limit(1);
+      if (!req) return fail("That requirement doesn't belong to this project");
+    }
+    if (d.taskId) {
+      const [task] = await tx
+        .select({ id: t.tasks.id })
+        .from(t.tasks)
+        .where(and(eq(t.tasks.id, d.taskId), eq(t.tasks.projectId, d.projectId)))
+        .limit(1);
+      if (!task) return fail("That task doesn't belong to this project");
+    }
+    if (d.wbsId) {
+      const [wbs] = await tx
+        .select({ id: t.wbsCodes.id })
+        .from(t.wbsCodes)
+        .where(and(eq(t.wbsCodes.id, d.wbsId), eq(t.wbsCodes.projectId, d.projectId)))
+        .limit(1);
+      if (!wbs) return fail("That cost code doesn't belong to this project");
+    }
+
     const available = num(item.quantity) - num(item.allocatedQty);
     if (d.quantity > available + 1e-9)
       return fail(`Only ${available} ${item.unit} available to reserve`);
@@ -1009,53 +1049,5 @@ export async function cancelAllocation(
 
 /* ──────────────────────────── helpers ──────────────────────────────── */
 
-/** Re-derive a requirement's status from received + allocated coverage. */
-async function recomputeRequirementCoverage(
-  tx: Tx,
-  requirementId: string,
-): Promise<void> {
-  const [req] = await tx
-    .select()
-    .from(t.projectRequirements)
-    .where(eq(t.projectRequirements.id, requirementId))
-    .limit(1);
-  if (!req) return;
-  if (req.status === "cancelled") return;
-
-  const [allocRow] = await tx
-    .select({
-      q: sql<string>`coalesce(sum(${t.inventoryAllocations.quantity}),0)`,
-    })
-    .from(t.inventoryAllocations)
-    .where(
-      and(
-        eq(t.inventoryAllocations.requirementId, requirementId),
-        sql`${t.inventoryAllocations.status} <> 'cancelled'`,
-      ),
-    );
-
-  const [recvRow] = await tx
-    .select({
-      q: sql<string>`coalesce(sum(${t.purchaseOrderLines.receivedQty}),0)`,
-    })
-    .from(t.purchaseOrderLines)
-    .where(eq(t.purchaseOrderLines.requirementId, requirementId));
-
-  const required = num(req.quantity);
-  // Coverage must not double-count: the allocated quantity is reserved from the
-  // same stock that `received` already counts, so `received + allocated` would
-  // over-state coverage and mark short receipts as fulfilled. Use max instead
-  // (conservative — only "fulfilled" when genuinely covered, never hides a short).
-  const covered = Math.max(num(allocRow?.q), num(recvRow?.q));
-  let status: t.ProjectRequirement["status"];
-  if (covered >= required - 1e-9) status = "fulfilled";
-  else if (covered > 0) status = "partially_received";
-  else status = req.status === "fulfilled" || req.status === "partially_received"
-    ? "ordered"
-    : req.status;
-
-  await tx
-    .update(t.projectRequirements)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(t.projectRequirements.id, requirementId));
-}
+// recomputeRequirementCoverage now lives in @/lib/effects (shared with the
+// orders module so PO cancel/close can revert a requirement's coverage too).

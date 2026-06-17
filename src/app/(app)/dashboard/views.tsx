@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, gte, inArray, lte, ne, or, sql } from "drizzle-orm";
 import type { Tx } from "@/db/client";
 import * as t from "@/db/schema";
-import { num } from "@/lib/money";
+import { formatMoney, num } from "@/lib/money";
 import { estimateAtCompletion } from "@/lib/queries";
 import { todayISO } from "@/lib/dates";
 import { daysUntil } from "@/lib/severity";
@@ -47,12 +47,16 @@ function dueLabel(days: number | null): string {
 
 /* ─────────────────────────── PM / Admin ─────────────────────────── */
 
-export async function pmDashboard(tx: Tx): Promise<DashboardView> {
+export async function pmDashboard(
+  tx: Tx,
+  currency: string,
+  canApprove: boolean,
+): Promise<DashboardView> {
   const soon = new Date();
   soon.setDate(soon.getDate() + SOON_WINDOW_DAYS);
   const soonISO = soon.toISOString().slice(0, 10);
 
-  const [projectRows, blockedTasks, openReqs, milestonesDue, cosPending] =
+  const [projectRows, blockedTasks, openReqs, milestonesDue, cosPending, pendingApprovals] =
     await Promise.all([
       tx
         .select({ status: t.projects.status })
@@ -128,18 +132,32 @@ export async function pmDashboard(tx: Tx): Promise<DashboardView> {
         .innerJoin(t.projects, eq(t.projects.id, t.changeOrders.projectId))
         .where(eq(t.changeOrders.status, "submitted"))
         .orderBy(desc(t.changeOrders.costImpact)),
+      // Every kind of pending approval (PO, subcontract, change order, invoice)
+      // an approver needs to act on — not just change orders.
+      tx
+        .select({
+          id: t.approvals.id,
+          type: t.approvals.type,
+          title: t.approvals.title,
+          amount: t.approvals.amount,
+          projectId: t.approvals.projectId,
+        })
+        .from(t.approvals)
+        .where(eq(t.approvals.status, "pending"))
+        .orderBy(desc(t.approvals.amount)),
     ]);
 
   const activeCount = projectRows.filter((p) => p.status === "active").length;
   const overdueMilestones = milestonesDue.filter(
     (m) => (daysUntil(m.dueDate) ?? 99) < 0,
   ).length;
+  const approvalsValue = pendingApprovals.reduce((s, a) => s + num(a.amount), 0);
 
   const kpis: Kpi[] = [
     {
       label: "Active projects",
       value: activeCount,
-      sub: `${projectRows.length} in progress`,
+      sub: `${projectRows.length} total`,
       tone: activeCount > 0 ? "info" : "neutral",
     },
     {
@@ -162,12 +180,21 @@ export async function pmDashboard(tx: Tx): Promise<DashboardView> {
         : `next ${SOON_WINDOW_DAYS} days`,
       tone: overdueMilestones ? "critical" : milestonesDue.length ? "warning" : "good",
     },
-    {
-      label: "Changes awaiting approval",
-      value: cosPending.length,
-      sub: cosPending.length ? "submitted change orders" : "none pending",
-      tone: cosPending.length ? "warning" : "good",
-    },
+    canApprove
+      ? {
+          label: "Pending approvals",
+          value: pendingApprovals.length,
+          sub: pendingApprovals.length
+            ? `${formatCompact(approvalsValue, currency)} total value`
+            : "none pending",
+          tone: pendingApprovals.length ? "warning" : "good",
+        }
+      : {
+          label: "Changes awaiting approval",
+          value: cosPending.length,
+          sub: cosPending.length ? "submitted change orders" : "none pending",
+          tone: cosPending.length ? "warning" : "good",
+        },
   ];
 
   const queue: QueueItem[] = [];
@@ -200,16 +227,33 @@ export async function pmDashboard(tx: Tx): Promise<DashboardView> {
     });
   }
 
-  for (const co of cosPending) {
-    queue.push({
-      tone: "warning",
-      title: `Change order ${co.number}: ${co.title}`,
-      detail: `${co.projectName} · cost impact ${formatCompact(num(co.costImpact))}`,
-      impact: "Awaiting approval",
-      href: `/projects/${co.projectId}`,
-      actionLabel: "Track",
-      rank: 100 + num(co.costImpact) / 100000,
-    });
+  if (canApprove) {
+    // Approver (owner/admin) — surface every pending approval to decide on,
+    // the very thing the approval threshold exists to control.
+    for (const app of pendingApprovals) {
+      queue.push({
+        tone: "warning",
+        title: `Approve: ${app.title}`,
+        detail: `${labelFor(app.type)} · ${formatCompact(num(app.amount), currency)}`,
+        impact: "Blocking downstream",
+        href: "/approvals",
+        actionLabel: "Decide",
+        rank: 280 + num(app.amount) / 100000,
+      });
+    }
+  } else {
+    // PM raises change orders but can't decide them — let them track status.
+    for (const co of cosPending) {
+      queue.push({
+        tone: "warning",
+        title: `Change order ${co.number}: ${co.title}`,
+        detail: `${co.projectName} · cost impact ${formatCompact(num(co.costImpact), currency)}`,
+        impact: "Awaiting approval",
+        href: `/projects/${co.projectId}`,
+        actionLabel: "Track",
+        rank: 100 + num(co.costImpact) / 100000,
+      });
+    }
   }
 
   return {
@@ -223,7 +267,7 @@ export async function pmDashboard(tx: Tx): Promise<DashboardView> {
 
 /* ─────────────────────────────── Buyer ──────────────────────────── */
 
-export async function buyerDashboard(tx: Tx): Promise<DashboardView> {
+export async function buyerDashboard(tx: Tx, currency: string): Promise<DashboardView> {
   const today = todayISO();
 
   const [toSource, rfqsActive, posPending, deliveriesOverdue] = await Promise.all([
@@ -352,7 +396,7 @@ export async function buyerDashboard(tx: Tx): Promise<DashboardView> {
     queue.push({
       tone: "info",
       title: `Awaiting approval: ${po.number}`,
-      detail: `${po.vendor} · ${formatCompact(num(po.total))}`,
+      detail: `${po.vendor} · ${formatCompact(num(po.total), currency)}`,
       impact: "Cannot release",
       href: "/orders",
       actionLabel: "View",
@@ -522,7 +566,7 @@ export async function storekeeperDashboard(tx: Tx): Promise<DashboardView> {
 
 /* ─────────────────────────────── Finance ────────────────────────── */
 
-export async function financeDashboard(tx: Tx): Promise<DashboardView> {
+export async function financeDashboard(tx: Tx, currency: string): Promise<DashboardView> {
   const [pendingApprovals, outstandingInvoices, projectAgg, costAgg] =
     await Promise.all([
       tx
@@ -616,12 +660,12 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
     {
       label: "Pending approvals",
       value: pendingApprovals.length,
-      sub: `${formatCompact(approvalsValue)} total value`,
+      sub: `${formatCompact(approvalsValue, currency)} total value`,
       tone: pendingApprovals.length ? "warning" : "good",
     },
     {
       label: "Outstanding invoices",
-      value: formatCompact(outstandingValue),
+      value: formatCompact(outstandingValue, currency),
       sub: `${outstandingInvoices.length} unpaid`,
       tone: outstandingValue > 0 ? "info" : "good",
     },
@@ -645,7 +689,7 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
     queue.push({
       tone: "warning",
       title: `Approve: ${app.title}`,
-      detail: `${labelFor(app.type)} · ${formatCompact(num(app.amount))}`,
+      detail: `${labelFor(app.type)} · ${formatCompact(num(app.amount), currency)}`,
       impact: "Blocking downstream",
       href: "/approvals",
       actionLabel: "Decide",
@@ -659,7 +703,7 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
     queue.push({
       tone: "critical",
       title: `Collect ${inv.number}: ${inv.title}`,
-      detail: `${inv.projectName} · ${formatCompact(outstanding)} · ${dueLabel(days)}`,
+      detail: `${inv.projectName} · ${formatCompact(outstanding, currency)} · ${dueLabel(days)}`,
       impact: "Cash at risk",
       href: "/billing",
       actionLabel: "Chase",
@@ -671,8 +715,8 @@ export async function financeDashboard(tx: Tx): Promise<DashboardView> {
     queue.push({
       tone: "critical",
       title: `Over budget: ${p.name}`,
-      detail: `Forecast ${formatCompact(p.forecast)} vs budget ${formatCompact(p.budget)}`,
-      impact: `+${formatCompact(p.variance)} variance`,
+      detail: `Forecast ${formatCompact(p.forecast, currency)} vs budget ${formatCompact(p.budget, currency)}`,
+      impact: `+${formatCompact(p.variance, currency)} variance`,
       href: "/costing",
       actionLabel: "Review",
       rank: 150 + p.variance / 100000,
@@ -699,14 +743,9 @@ function addDaysISO(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Compact AED for dense dashboard labels (e.g. "AED 1.2M"). */
-function formatCompact(v: number): string {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 0,
-    notation: "compact",
-  }).format(v);
+/** Compact, tenant-currency labels for dense dashboard chips (e.g. "$1.2M"). */
+function formatCompact(v: number, currency: string): string {
+  return formatMoney(v, currency, { compact: true });
 }
 
 const APPROVAL_TYPE_LABEL: Record<string, string> = {

@@ -27,6 +27,7 @@ export default async function AllocationsPage() {
   const user = await requireUser();
   if (!can(user.role, "inventory.allocate")) redirect("/forbidden");
   const canAllocate = can(user.role, "inventory.allocate");
+  const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
     // Requirements that are still open (need material).
@@ -241,7 +242,9 @@ export default async function AllocationsPage() {
                             taskOptions={tasksByProject.get(r.projectId) ?? []}
                             requirementId={r.id}
                             projectId={r.projectId}
+                            taskId={r.taskId ?? undefined}
                             wbsId={r.wbsId ?? undefined}
+                            currency={currency}
                           />
                         ) : (
                           <StatusBadge tone="warning">
@@ -293,6 +296,7 @@ export default async function AllocationsPage() {
                         unitCost={num(s.unitCost)}
                         projectOptions={projectOptions}
                         taskOptions={[]}
+                        currency={currency}
                       />
                     </td>
                   </tr>

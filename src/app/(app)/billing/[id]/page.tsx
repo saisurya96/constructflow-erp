@@ -180,6 +180,7 @@ export default async function InvoiceDetailPage({
                     amount: String(Number(l.amount)),
                     wbsId: l.wbsId ?? "",
                   }))}
+                  currency={currency}
                 />
                 <ActionButton action={sendInvoice} fields={{ invoiceId: invoice.id }} size="sm">
                   Send

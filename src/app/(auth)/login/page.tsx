@@ -14,6 +14,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const errors = state && !state.ok ? (state.fieldErrors ?? {}) : {};
 
+  // Quick-fill demo logins are a dev/demo convenience — never show them (or the
+  // shared password) on a real production deployment. Opt back in for a hosted
+  // demo with NEXT_PUBLIC_DEMO_LOGINS=true.
+  const showDemoAccounts =
+    process.env.NEXT_PUBLIC_DEMO_LOGINS === "true" ||
+    process.env.NODE_ENV !== "production";
+
   return (
     <div className="space-y-6">
       <div className="space-y-1.5">
@@ -58,26 +65,28 @@ export default function LoginPage() {
         <SubmitButton className="w-full">Sign in</SubmitButton>
       </form>
 
-      <div className="rounded-lg border bg-muted/40 p-3">
-        <p className="eyebrow mb-2 text-muted-foreground">
-          Demo accounts · {DEMO_PASSWORD}
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {DEMO_ACCOUNTS.map((a) => (
-            <button
-              key={a.email}
-              type="button"
-              onClick={() => {
-                setEmail(a.email);
-                setPassword(DEMO_PASSWORD);
-              }}
-              className="rounded-md border bg-card px-2 py-1 text-xs hover:bg-accent"
-            >
-              {a.label}
-            </button>
-          ))}
+      {showDemoAccounts && (
+        <div className="rounded-lg border bg-muted/40 p-3">
+          <p className="eyebrow mb-2 text-muted-foreground">
+            Demo accounts · {DEMO_PASSWORD}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {DEMO_ACCOUNTS.map((a) => (
+              <button
+                key={a.email}
+                type="button"
+                onClick={() => {
+                  setEmail(a.email);
+                  setPassword(DEMO_PASSWORD);
+                }}
+                className="rounded-md border bg-card px-2 py-1 text-xs hover:bg-accent"
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <p className="text-center text-sm text-muted-foreground">
         New here?{" "}

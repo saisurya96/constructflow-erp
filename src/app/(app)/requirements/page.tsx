@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { ClipboardList, FileText } from "lucide-react";
+import { ClipboardList, FileText, ShoppingCart } from "lucide-react";
 import { requireUser, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -89,7 +89,9 @@ export default async function RequirementsPage() {
     const allocated = allocMap.get(r.id) ?? 0;
     const inbound = inboundMap.get(r.id) ?? 0;
     const received = receivedMap.get(r.id) ?? 0;
-    const shortage = Math.max(0, required - allocated - received - inbound);
+    // max(allocated, received) — a reservation comes from the same stock `received`
+    // counts, so adding them would hide a genuine shortage. Inbound is additional.
+    const shortage = Math.max(0, required - Math.max(allocated, received) - inbound);
     const estValue = required * num(r.estimatedUnitCost);
     return { r, required, allocated, received, inbound, shortage, estValue };
   });
@@ -186,14 +188,24 @@ export default async function RequirementsPage() {
                             </ActionButton>
                           )}
                           {isBuyer && (r.status === "submitted" || r.status === "sourcing") && (
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              className="ml-1"
-                              render={<Link href={`/rfqs/new?requirementId=${r.id}`} />}
-                            >
-                              <FileText className="size-3.5" /> RFQ
-                            </Button>
+                            <>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                className="ml-1"
+                                render={<Link href={`/rfqs/new?requirementId=${r.id}`} />}
+                              >
+                                <FileText className="size-3.5" /> RFQ
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                className="ml-1"
+                                render={<Link href={`/orders/new?requirementId=${r.id}`} />}
+                              >
+                                <ShoppingCart className="size-3.5" /> Raise PO
+                              </Button>
+                            </>
                           )}
                           {cancellable && (
                             <ActionButton

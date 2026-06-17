@@ -73,7 +73,7 @@ export default async function PoPrintPage({
 
   if (!result) notFound();
   const { po, lines, company } = result;
-  const currency = company?.currencyCode ?? "AED";
+  const currency = company?.currencyCode ?? "USD";
   const isSub = po.type === "subcontract";
 
   return (

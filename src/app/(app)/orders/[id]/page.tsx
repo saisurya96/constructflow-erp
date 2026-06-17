@@ -62,6 +62,7 @@ export default async function OrderDetailPage({
     const lines = await tx
       .select({
         id: t.purchaseOrderLines.id,
+        requirementId: t.purchaseOrderLines.requirementId,
         itemName: t.purchaseOrderLines.itemName,
         unit: t.purchaseOrderLines.unit,
         quantity: t.purchaseOrderLines.quantity,
@@ -203,6 +204,7 @@ export default async function OrderDetailPage({
                       quantity: l.quantity,
                       unitPrice: l.unitPrice,
                       wbsId: l.wbsId,
+                      requirementId: l.requirementId,
                     })),
                   }}
                   currency={currency}

@@ -35,7 +35,7 @@ function VendorFields({
     <>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Vendor name" htmlFor="name" required error={errors.name} className="col-span-2">
-          <Input id="name" name="name" required placeholder="Emirates Steel Trading" defaultValue={vendor?.name} />
+          <Input id="name" name="name" required placeholder="Acme Supply Co." defaultValue={vendor?.name} />
         </Field>
         <Field label="Code" htmlFor="code" error={errors.code}>
           <Input id="code" name="code" placeholder="V-001" defaultValue={vendor?.code ?? ""} />
@@ -54,14 +54,14 @@ function VendorFields({
           <Input id="contactName" name="contactName" placeholder="Sales rep" defaultValue={vendor?.contactName ?? ""} />
         </Field>
         <Field label="Phone" htmlFor="phone" error={errors.phone}>
-          <Input id="phone" name="phone" placeholder="+971 50 000 0000" defaultValue={vendor?.phone ?? ""} />
+          <Input id="phone" name="phone" placeholder="+1 555 000 0000" defaultValue={vendor?.phone ?? ""} />
         </Field>
       </div>
       <Field label="Email" htmlFor="email" error={errors.email}>
         <Input id="email" name="email" type="email" placeholder="sales@vendor.com" defaultValue={vendor?.email ?? ""} />
       </Field>
       <Field label="Address" htmlFor="address" error={errors.address}>
-        <Input id="address" name="address" placeholder="Industrial Area, Dubai" defaultValue={vendor?.address ?? ""} />
+        <Input id="address" name="address" placeholder="123 Main St, City" defaultValue={vendor?.address ?? ""} />
       </Field>
       <div className="grid grid-cols-2 items-end gap-3">
         <Field label="Rating (0–5)" htmlFor="rating" error={errors.rating}>

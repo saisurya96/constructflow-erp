@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, ArrowRight } from "lucide-react";
 import { requireUser, db } from "@/lib/auth/context";
-import { ROLE_LABELS, ROLE_TAGLINES } from "@/lib/rbac";
+import { ROLE_LABELS, ROLE_TAGLINES, can } from "@/lib/rbac";
 import type { UserRole } from "@/db/schema";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -29,18 +29,20 @@ import {
 export default async function DashboardPage() {
   const user = await requireUser();
 
+  const currency = user.currencyCode;
+  const canApprove = can(user.role, "approvals.decide");
   const view: DashboardView = await db(async (tx) => {
     switch (user.role) {
       case "buyer":
-        return buyerDashboard(tx);
+        return buyerDashboard(tx, currency);
       case "storekeeper":
         return storekeeperDashboard(tx);
       case "finance":
-        return financeDashboard(tx);
+        return financeDashboard(tx, currency);
       case "pm":
       case "admin":
       default:
-        return pmDashboard(tx);
+        return pmDashboard(tx, currency, canApprove);
     }
   });
 

@@ -14,8 +14,9 @@ export default function SignupPage() {
 
   // Country drives the suggested currency + VAT, but the currency stays
   // overridable. Nothing is assumed — and it's all editable later in settings.
-  const [country, setCountry] = useState("AE");
-  const [currency, setCurrency] = useState("AED");
+  const DEFAULT_COUNTRY = "US";
+  const [country, setCountry] = useState(DEFAULT_COUNTRY);
+  const [currency, setCurrency] = useState(localeForCountry(DEFAULT_COUNTRY).currency);
   const onCountry = (code: string) => {
     setCountry(code);
     setCurrency(localeForCountry(code).currency);
@@ -70,7 +71,11 @@ export default function SignupPage() {
             htmlFor="currencyCode"
             required
             error={errors.currencyCode}
-            hint={`VAT/GST defaults to ${locale.vat}% — editable later`}
+            hint={
+              locale.vat > 0
+                ? `VAT/GST set to ${locale.vat}% for ${locale.name} — editable later`
+                : `No VAT/GST for ${locale.name} — editable later`
+            }
           >
             <NativeSelect
               id="currencyCode"

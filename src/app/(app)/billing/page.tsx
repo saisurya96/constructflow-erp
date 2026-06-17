@@ -107,7 +107,7 @@ export default async function BillingPage() {
         eyebrow="Revenue · billing"
         title="Billing"
         description="Client invoicing — milestone and progress applications, payments and collections."
-        actions={<CreateInvoiceDialog projects={projectOptions} />}
+        actions={<CreateInvoiceDialog projects={projectOptions} currency={currency} />}
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">

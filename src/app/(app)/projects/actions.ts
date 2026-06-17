@@ -45,6 +45,10 @@ const projectSchema = z.object({
   startDate: zOptionalDate,
   endDate: zOptionalDate,
   description: z.string().optional(),
+  status: z.enum(["planning", "active", "on_hold", "completed", "archived"]).optional(),
+  // Mid-adoption baseline: cost already incurred on an in-flight job before the
+  // firm started using the tool, so margin doesn't read a fictional 100%.
+  openingCost: zMoney,
   template: z.enum(["new_build", "fit_out", "renovation", "generic"]).optional(),
 });
 
@@ -66,6 +70,7 @@ export async function createProject(
         name: d.name,
         clientName: d.clientName ?? null,
         location: d.location ?? null,
+        status: d.status ?? "planning",
         budget: money(d.budget),
         contractValue: money(d.contractValue),
         startDate: d.startDate ?? null,
@@ -84,6 +89,20 @@ export async function createProject(
         sortOrder: i,
       })),
     );
+    // Opening cost-to-date posts as a real actual on the ledger, so an adopted
+    // in-flight job shows a truthful forecast/margin from day one.
+    if (d.openingCost > 0) {
+      await tx.insert(t.costPostings).values({
+        companyId: ctx.companyId,
+        projectId: proj.id,
+        wbsId: null,
+        type: "actual",
+        amount: money(d.openingCost),
+        sourceType: "opening",
+        description: "Opening cost to date at adoption",
+        postedBy: ctx.userId,
+      });
+    }
     await audit(tx, ctx, {
       action: "project.create",
       entityType: "project",
@@ -447,6 +466,15 @@ export async function reachMilestone(
   const projectId = String(formData.get("projectId") ?? "");
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const [existing] = await tx
+      .select({ status: t.milestones.status })
+      .from(t.milestones)
+      .where(eq(t.milestones.id, milestoneId))
+      .limit(1);
+    if (!existing) return fail("Milestone not found");
+    // An invoiced milestone is locked — don't roll it back to "reached".
+    if (existing.status === "invoiced")
+      return fail("This milestone has been invoiced and can no longer be changed");
     await tx
       .update(t.milestones)
       .set({ status: "reached", reachedAt: new Date().toISOString().slice(0, 10) })

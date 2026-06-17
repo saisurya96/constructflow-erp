@@ -181,3 +181,76 @@ export async function applyChangeOrder(
     projectId: co.projectId,
   });
 }
+
+/**
+ * Re-derive a requirement's coverage status from its allocations, receipts and
+ * still-live PO lines. Call it whenever any of those change — goods receipt,
+ * GRN reversal, stock allocation, or a PO cancel/close — so the requirement is
+ * never left stuck (e.g. at "ordered" after its only PO was cancelled).
+ *
+ * Coverage must not double-count: a reservation draws from the same physical
+ * stock that `received` already counts, so on-hand coverage is max(allocated,
+ * received). `inbound` (still-on-order PO lines) is genuinely additional and
+ * decides whether a requirement with nothing received is "ordered" vs back in
+ * the sourcing queue.
+ */
+export async function recomputeRequirementCoverage(
+  tx: Tx,
+  requirementId: string,
+): Promise<void> {
+  const [req] = await tx
+    .select()
+    .from(t.projectRequirements)
+    .where(eq(t.projectRequirements.id, requirementId))
+    .limit(1);
+  if (!req) return;
+  if (req.status === "cancelled") return;
+
+  const [allocRow] = await tx
+    .select({ q: sql<string>`coalesce(sum(${t.inventoryAllocations.quantity}),0)` })
+    .from(t.inventoryAllocations)
+    .where(
+      and(
+        eq(t.inventoryAllocations.requirementId, requirementId),
+        sql`${t.inventoryAllocations.status} <> 'cancelled'`,
+      ),
+    );
+
+  const [recvRow] = await tx
+    .select({ q: sql<string>`coalesce(sum(${t.purchaseOrderLines.receivedQty}),0)` })
+    .from(t.purchaseOrderLines)
+    .where(eq(t.purchaseOrderLines.requirementId, requirementId));
+
+  // Still-on-order coverage: linked PO lines whose order is still live.
+  const [inboundRow] = await tx
+    .select({
+      q: sql<string>`coalesce(sum(${t.purchaseOrderLines.quantity} - ${t.purchaseOrderLines.receivedQty}),0)`,
+    })
+    .from(t.purchaseOrderLines)
+    .innerJoin(t.purchaseOrders, eq(t.purchaseOrders.id, t.purchaseOrderLines.poId))
+    .where(
+      and(
+        eq(t.purchaseOrderLines.requirementId, requirementId),
+        inArray(t.purchaseOrders.status, ["approved", "released", "partially_received"]),
+      ),
+    );
+
+  const required = num(req.quantity);
+  const covered = Math.max(num(allocRow?.q), num(recvRow?.q));
+  const inbound = num(inboundRow?.q);
+
+  let status: t.ProjectRequirement["status"];
+  if (covered >= required - 1e-9) status = "fulfilled";
+  else if (covered > 0) status = "partially_received";
+  else if (inbound > 0) status = "ordered"; // nothing received yet, but on order
+  else if (["ordered", "partially_received", "fulfilled"].includes(req.status))
+    // Coverage that previously existed is gone (its PO was cancelled/closed) —
+    // drop back into sourcing rather than getting stuck mid-lifecycle.
+    status = "sourcing";
+  else status = req.status;
+
+  await tx
+    .update(t.projectRequirements)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(t.projectRequirements.id, requirementId));
+}

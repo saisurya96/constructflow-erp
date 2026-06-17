@@ -96,7 +96,7 @@ export function EnterQuoteDialog({
   vendorName,
   lines,
   defaults,
-  currency = "AED",
+  currency = "USD",
 }: {
   quoteId: string;
   vendorName: string;

@@ -8,7 +8,7 @@ export function num(v: string | number | null | undefined): number {
 
 export function formatMoney(
   v: string | number | null | undefined,
-  currency = "AED",
+  currency = "USD",
   opts: { compact?: boolean } = {},
 ): string {
   const value = num(v);
@@ -19,7 +19,10 @@ export function formatMoney(
       // narrowSymbol prefers the glyph ($, £, €, ₹) over the ISO code where one
       // exists; currencies without a glyph (AED, SAR, …) still show their code.
       currencyDisplay: "narrowSymbol",
-      maximumFractionDigits: 0,
+      // Compact keeps up to one decimal so $1.1M and $1.4M stay distinct, but
+      // minimumFractionDigits:0 stops ICU padding round values to "$1.0M"/"$0.0".
+      minimumFractionDigits: 0,
+      maximumFractionDigits: opts.compact ? 1 : 0,
       notation: opts.compact ? "compact" : "standard",
     }).format(value);
   } catch {

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, DateField, NativeSelect } from "@/components/app/field";
+import { formatMoney } from "@/lib/money";
 import { createInvoice, recordPayment, editInvoice } from "./actions";
 
 type Option = { id: string; label: string };
@@ -24,8 +25,10 @@ type LineRow = { key: number; description: string; amount: string; wbsId: string
 
 export function CreateInvoiceDialog({
   projects,
+  currency,
 }: {
   projects: ProjectOption[];
+  currency: string;
 }) {
   const [projectId, setProjectId] = useState<string>(projects[0]?.id ?? "");
   const [type, setType] = useState<"milestone" | "progress">("progress");
@@ -193,11 +196,7 @@ export function CreateInvoiceDialog({
               ))}
             </div>
             <div className="flex justify-end pt-1 text-sm text-muted-foreground tabular">
-              Subtotal {new Intl.NumberFormat("en-AE", {
-                style: "currency",
-                currency: "AED",
-                maximumFractionDigits: 0,
-              }).format(subtotal)}
+              Subtotal {formatMoney(subtotal, currency)}
             </div>
           </div>
 
@@ -223,12 +222,14 @@ export function EditInvoiceDialog({
   wbsOptions,
   defaults,
   lines: initialLines,
+  currency,
 }: {
   invoiceId: string;
   type: "milestone" | "progress";
   wbsOptions: Option[];
   defaults: { title: string; progressPercent: string | null; issueDate: string | null; dueDate: string | null };
   lines: { description: string; amount: string; wbsId: string }[];
+  currency: string;
 }) {
   const [lines, setLines] = useState<LineRow[]>(
     initialLines.length
@@ -326,11 +327,7 @@ export function EditInvoiceDialog({
               ))}
             </div>
             <div className="flex justify-end pt-1 text-sm text-muted-foreground tabular">
-              Subtotal {new Intl.NumberFormat("en-AE", {
-                style: "currency",
-                currency: "AED",
-                maximumFractionDigits: 0,
-              }).format(subtotal)}
+              Subtotal {formatMoney(subtotal, currency)}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

@@ -65,7 +65,7 @@ export default async function InvoicePrintPage({
 
   if (!result) notFound();
   const { inv, lines, company } = result;
-  const currency = company?.currencyCode ?? "AED";
+  const currency = company?.currencyCode ?? "USD";
   const balance = num(inv.totalAmount) - num(inv.amountPaid);
 
   return (

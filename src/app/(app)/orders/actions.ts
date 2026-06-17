@@ -1,13 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import type { Tx } from "@/db/client";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import { nextNumber } from "@/lib/numbering";
-import { releasePurchaseOrder, reopenRfqLines } from "@/lib/effects";
+import { releasePurchaseOrder, reopenRfqLines, recomputeRequirementCoverage } from "@/lib/effects";
 import * as t from "@/db/schema";
 import {
   parseForm,
@@ -31,6 +32,7 @@ const poSchema = z.object({
 });
 
 type PoLine = {
+  requirementId: string | null;
   itemName: string;
   unit: string;
   quantity: number;
@@ -46,6 +48,7 @@ function parsePoLines(formData: FormData): PoLine[] {
   const qtys = formData.getAll("lineQty").map(String);
   const prices = formData.getAll("linePrice").map(String);
   const wbsIds = formData.getAll("lineWbs").map(String);
+  const reqIds = formData.getAll("lineRequirementId").map(String);
   const lines: PoLine[] = [];
   for (let i = 0; i < items.length; i++) {
     const itemName = (items[i] ?? "").trim();
@@ -53,7 +56,9 @@ function parsePoLines(formData: FormData): PoLine[] {
     if (!itemName || qtyVal <= 0) continue;
     const priceVal = num(prices[i]);
     const wbsId = (wbsIds[i] ?? "").trim();
+    const reqId = (reqIds[i] ?? "").trim();
     lines.push({
+      requirementId: reqId.length ? reqId : null,
       itemName,
       unit: (units[i] ?? "pcs").trim() || "pcs",
       quantity: qtyVal,
@@ -63,6 +68,59 @@ function parsePoLines(formData: FormData): PoLine[] {
     });
   }
   return lines;
+}
+
+/**
+ * Null out any line requirement/cost-code link that doesn't belong to the PO's
+ * OWN project. RLS only scopes the tenant — it won't catch a sibling-project id
+ * smuggled in through the form, which would otherwise clear another project's
+ * shortage (requirement) or post commitment to a foreign cost code (wbs). A PO
+ * with no project can't legitimately cover a requirement or carry a cost code,
+ * so all such links drop.
+ */
+async function pruneInvalidLineLinks(
+  tx: Tx,
+  lines: PoLine[],
+  projectId: string | null,
+): Promise<void> {
+  if (!projectId) {
+    for (const l of lines) {
+      l.requirementId = null;
+      l.wbsId = null;
+    }
+    return;
+  }
+  const reqIds = [...new Set(lines.map((l) => l.requirementId).filter((x): x is string => !!x))];
+  if (reqIds.length) {
+    const rows = await tx
+      .select({ id: t.projectRequirements.id })
+      .from(t.projectRequirements)
+      .where(
+        and(inArray(t.projectRequirements.id, reqIds), eq(t.projectRequirements.projectId, projectId)),
+      );
+    const valid = new Set(rows.map((r) => r.id));
+    for (const l of lines) if (l.requirementId && !valid.has(l.requirementId)) l.requirementId = null;
+  }
+  const wbsIds = [...new Set(lines.map((l) => l.wbsId).filter((x): x is string => !!x))];
+  if (wbsIds.length) {
+    const rows = await tx
+      .select({ id: t.wbsCodes.id })
+      .from(t.wbsCodes)
+      .where(and(inArray(t.wbsCodes.id, wbsIds), eq(t.wbsCodes.projectId, projectId)));
+    const valid = new Set(rows.map((r) => r.id));
+    for (const l of lines) if (l.wbsId && !valid.has(l.wbsId)) l.wbsId = null;
+  }
+}
+
+/** Recompute coverage for every requirement this order's lines link to — used
+ *  after cancel/close so a requirement is never left stuck at "ordered". */
+async function revertLinkedRequirements(tx: Tx, poId: string): Promise<void> {
+  const rows = await tx
+    .select({ requirementId: t.purchaseOrderLines.requirementId })
+    .from(t.purchaseOrderLines)
+    .where(eq(t.purchaseOrderLines.poId, poId));
+  const ids = [...new Set(rows.map((r) => r.requirementId).filter((x): x is string => !!x))];
+  for (const id of ids) await recomputeRequirementCoverage(tx, id);
 }
 
 export async function createPurchaseOrder(
@@ -78,6 +136,8 @@ export async function createPurchaseOrder(
 
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "procurement.manage")) return fail("You don't have permission");
+
+    await pruneInvalidLineLinks(tx, lines, d.projectId ?? null);
 
     const [company] = await tx
       .select({ vatRate: t.companies.vatRate })
@@ -119,6 +179,7 @@ export async function createPurchaseOrder(
       lines.map((l, i) => ({
         companyId: ctx.companyId,
         poId: po.id,
+        requirementId: l.requirementId,
         wbsId: l.wbsId,
         itemName: l.itemName,
         unit: l.unit,
@@ -322,6 +383,11 @@ export async function cancelPurchaseOrder(
       .set({ status: "cancelled", updatedAt: new Date() })
       .where(eq(t.purchaseOrders.id, poId));
 
+    // Revert any requirement this order was covering — now that the PO is
+    // cancelled it no longer counts as inbound, so a requirement stuck at
+    // "ordered" drops back into the sourcing queue (recompute decides).
+    await revertLinkedRequirements(tx, po.id);
+
     // If this PO came from an awarded RFQ, reopen that RFQ so the buyer can
     // re-source / award a different vendor instead of being stuck.
     if (po.rfqId) {
@@ -382,6 +448,8 @@ export async function updatePurchaseOrder(
     if (!po) return fail("Order not found");
     if (po.status !== "draft") return fail("Only draft orders can be edited");
 
+    await pruneInvalidLineLinks(tx, lines, d.projectId ?? null);
+
     const [company] = await tx
       .select({ vatRate: t.companies.vatRate })
       .from(t.companies)
@@ -414,6 +482,7 @@ export async function updatePurchaseOrder(
       lines.map((l, i) => ({
         companyId: ctx.companyId,
         poId,
+        requirementId: l.requirementId,
         wbsId: l.wbsId,
         itemName: l.itemName,
         unit: l.unit,
@@ -499,6 +568,11 @@ export async function closePurchaseOrder(
       .update(t.purchaseOrders)
       .set({ status: "closed", updatedAt: new Date() })
       .where(eq(t.purchaseOrders.id, poId));
+
+    // A closed order no longer counts as inbound — re-derive coverage for any
+    // linked requirement so an unreceived one re-enters the sourcing queue.
+    await revertLinkedRequirements(tx, po.id);
+
     await audit(tx, ctx, {
       action: "po.close",
       entityType: "purchase_order",

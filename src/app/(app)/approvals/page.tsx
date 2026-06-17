@@ -88,12 +88,12 @@ export default async function ApprovalsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Authorisations"
+        eyebrow="Authorizations"
         title="Approvals"
         description={
           canDecide
             ? "Authorize purchase orders and change orders that exceed the approval threshold."
-            : "Track the status of submissions awaiting authorisation."
+            : "Track the status of submissions awaiting authorization."
         }
       />
 

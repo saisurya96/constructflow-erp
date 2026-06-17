@@ -181,10 +181,21 @@ export async function cancelRequirement(
           ),
         );
       if (others.length === 0) {
+        // Also move the task off "blocked" — clearing isBlocked alone would leave
+        // it in the contradictory blocked-status / not-blocked-flag state.
+        const [task] = await tx
+          .select({ status: t.tasks.status })
+          .from(t.tasks)
+          .where(eq(t.tasks.id, req.taskId))
+          .limit(1);
         await tx
           .update(t.tasks)
-          .set({ isBlocked: false, updatedAt: new Date() })
-          .where(and(eq(t.tasks.id, req.taskId), eq(t.tasks.status, "blocked")));
+          .set({
+            isBlocked: false,
+            ...(task?.status === "blocked" ? { status: "in_progress" as const } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(t.tasks.id, req.taskId));
       }
     }
     await audit(tx, ctx, {
@@ -215,11 +226,25 @@ export async function updateRequirementStatus(
     if (!can(ctx.role, "requirements.source") && !can(ctx.role, "requirements.raise"))
       return fail("You don't have permission");
     const [req] = await tx
+      .select({
+        status: t.projectRequirements.status,
+        itemName: t.projectRequirements.itemName,
+        projectId: t.projectRequirements.projectId,
+      })
+      .from(t.projectRequirements)
+      .where(eq(t.projectRequirements.id, requirementId))
+      .limit(1)
+      .for("update");
+    if (!req) return fail("Requirement not found");
+    // This action only backs the buyer's "Start sourcing" button. Coverage-driven
+    // states (ordered / partially_received / fulfilled) are owned by the inventory
+    // + ordering flows and must not be forced here, nor reopened once terminal.
+    if (!(req.status === "submitted" && status === "sourcing"))
+      return fail("Invalid status transition");
+    await tx
       .update(t.projectRequirements)
       .set({ status, updatedAt: new Date() })
-      .where(eq(t.projectRequirements.id, requirementId))
-      .returning();
-    if (!req) return fail("Requirement not found");
+      .where(eq(t.projectRequirements.id, requirementId));
     await audit(tx, ctx, {
       action: "requirement.status",
       entityType: "requirement",

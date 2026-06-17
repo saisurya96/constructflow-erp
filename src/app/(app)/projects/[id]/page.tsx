@@ -29,6 +29,7 @@ import {
   EditMilestoneDialog,
   AddWbsDialog,
   EditWbsDialog,
+  WbsBudgetCell,
   AddChangeOrderDialog,
   RaiseRequirementDialog,
   EditRequirementDialog,
@@ -167,7 +168,7 @@ export default async function ProjectDetailPage({
   const canCO = can(user.role, "changeorders.manage");
 
   const wbsOptions = wbs.map((w) => ({ id: w.id, label: `${w.code} — ${w.name}` }));
-  const taskOptions = tasks.map((tk) => ({ id: tk.id, label: tk.name }));
+  const taskOptions = tasks.map((tk) => ({ id: tk.id, label: tk.name, wbsId: tk.wbsId }));
   const memberOptions = members.map((mb) => ({ id: mb.id, label: mb.name }));
 
   // Shape the schedule data for the Board / Table / Timeline work module.
@@ -478,7 +479,13 @@ export default async function ProjectDetailPage({
                       <tr key={w.id} className="border-b last:border-0">
                         <td className="px-4 py-2.5 font-medium">{w.code}</td>
                         <td className="px-4 py-2.5">{w.name}</td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(w.budget, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {canManage ? (
+                            <WbsBudgetCell wbsId={w.id} projectId={project.id} budget={w.budget} />
+                          ) : (
+                            formatMoney(w.budget, currency)
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-right tabular text-info">{formatMoney(c.committed, currency)}</td>
                         <td className="px-4 py-2.5 text-right tabular">{formatMoney(c.actual, currency)}</td>
                         <td className={`px-4 py-2.5 text-right tabular ${remaining < 0 ? "text-critical" : "text-muted-foreground"}`}>

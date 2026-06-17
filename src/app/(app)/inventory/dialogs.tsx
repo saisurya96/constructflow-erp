@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, NativeSelect } from "@/components/app/field";
+import { formatMoney } from "@/lib/money";
 import { UNITS } from "@/lib/constants";
 import {
   createWarehouse,
@@ -209,7 +210,9 @@ export function ReserveAllocationDialog({
   taskOptions,
   requirementId,
   projectId,
+  taskId,
   wbsId,
+  currency,
   trigger,
 }: {
   itemId: string;
@@ -217,18 +220,21 @@ export function ReserveAllocationDialog({
   available: number;
   unit: string;
   unitCost: number;
+  currency: string;
   projectOptions: Option[];
   /** task options keyed by project id (only the chosen project's tasks matter). */
   taskOptions: Option[];
   requirementId?: string;
   projectId?: string;
+  /** the requirement's already-linked task — pre-selected so it isn't re-picked. */
+  taskId?: string;
   wbsId?: string;
   trigger?: React.ReactElement;
 }) {
   return (
     <FormDialog
       title={`Reserve ${itemName}`}
-      description={`${available} ${unit} available · unit cost ${unitCost.toFixed(2)}`}
+      description={`${available} ${unit} available · unit cost ${formatMoney(unitCost, currency)}`}
       action={reserveAllocation}
       submitLabel="Reserve stock"
       trigger={
@@ -258,7 +264,7 @@ export function ReserveAllocationDialog({
           )}
           {taskOptions.length > 0 && (
             <Field label="Task (optional)" htmlFor="taskId" hint="Reserving unblocks a blocked task.">
-              <NativeSelect id="taskId" name="taskId" defaultValue="">
+              <NativeSelect id="taskId" name="taskId" defaultValue={taskId ?? ""}>
                 <option value="">— none —</option>
                 {taskOptions.map((o) => (
                   <option key={o.id} value={o.id}>{o.label}</option>

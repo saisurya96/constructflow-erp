@@ -7,6 +7,7 @@ import type { Tx } from "@/db/client";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import * as t from "@/db/schema";
+import { money } from "@/lib/money";
 import { ok, fail, type ActionState } from "@/lib/forms";
 import type { TaskStatus, TaskPriority } from "@/db/schema";
 
@@ -34,6 +35,37 @@ async function recomputeProjectProgress(tx: Tx, projectId: string) {
   const totalW = rows.reduce((s, r) => s + Number(r.w ?? 0), 0) || 1;
   const prog = rows.reduce((s, r) => s + Number(r.p ?? 0) * Number(r.w ?? 0), 0) / totalW;
   await tx.update(t.projects).set({ progress: pctStr(prog) }).where(eq(t.projects.id, projectId));
+}
+
+/** Inline budget edit on the Budget/WBS tab — set a cost code's budget in place,
+ *  no modal-per-code. Same capability + audit + revalidation as updateWbsCode. */
+export async function setWbsBudget(input: {
+  wbsId: string;
+  projectId: string;
+  budget: number;
+}): Promise<ActionState> {
+  const { wbsId, projectId, budget } = input;
+  if (!Number.isFinite(budget) || budget < 0) return fail("Enter a valid budget");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    const [wbs] = await tx
+      .select({ code: t.wbsCodes.code })
+      .from(t.wbsCodes)
+      .where(and(eq(t.wbsCodes.id, wbsId), eq(t.wbsCodes.projectId, projectId)))
+      .limit(1);
+    if (!wbs) return fail("Cost code not found");
+    await tx.update(t.wbsCodes).set({ budget: money(budget) }).where(eq(t.wbsCodes.id, wbsId));
+    await audit(tx, ctx, {
+      action: "wbs.budget",
+      entityType: "wbs",
+      entityId: wbsId,
+      summary: `Set ${wbs.code} budget to ${money(budget)}`,
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath(`/costing/${projectId}`);
+    return ok("Budget updated");
+  });
 }
 
 /** Move a task to a new status column (Kanban drag / table status select). */

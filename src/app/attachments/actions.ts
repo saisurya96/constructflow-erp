@@ -8,6 +8,7 @@ import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import * as t from "@/db/schema";
 import { ok, fail, type ActionState } from "@/lib/forms";
+import { ATTACHMENT_WRITE_CAP } from "./caps";
 
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB — inline-in-DB storage
 
@@ -38,9 +39,16 @@ export async function uploadAttachment(
   if (file.size > MAX_BYTES)
     return fail(`File is too large (max ${MAX_BYTES / 1024 / 1024} MB)`);
 
+  const cap = ATTACHMENT_WRITE_CAP[entityType];
+  if (!cap) return fail("Unsupported attachment target");
+
   const data = Buffer.from(await file.arrayBuffer()).toString("base64");
 
   return db(async (tx, ctx) => {
+    // Write gating is symmetric with the download route — a role can only attach
+    // to entities it can manage, so view-only roles can't plant files.
+    if (!can(ctx.role, cap)) return fail("You don't have permission to attach files here");
+
     await tx.insert(t.attachments).values({
       companyId: ctx.companyId,
       entityType,

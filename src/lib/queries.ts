@@ -240,7 +240,10 @@ export async function getRequirementCoverage(
     const allocated = allocMap.get(r.id) ?? 0;
     const rec = receivedMap.get(r.id) ?? 0;
     const inb = inboundMap.get(r.id) ?? 0;
-    const covered = allocated + rec + inb;
+    // Don't double-count: a reservation draws from the same physical stock that
+    // `received` represents, so on-hand coverage is max(allocated, received).
+    // `inbound` (still on order) is genuinely additional. Matches the status pill.
+    const covered = Math.max(allocated, rec) + inb;
     out.set(r.id, {
       required,
       allocated,

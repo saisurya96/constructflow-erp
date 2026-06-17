@@ -97,6 +97,6 @@ export async function readSessionContext(): Promise<AuthContext | null> {
     fullName: row.fullName,
     email: row.email,
     title: row.title,
-    currencyCode: row.currencyCode ?? "AED",
+    currencyCode: row.currencyCode ?? "USD",
   };
 }

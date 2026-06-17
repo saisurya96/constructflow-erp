@@ -113,13 +113,24 @@ export function localeForCountry(code: string) {
 }
 
 export const VENDOR_CATEGORIES = [
+  // Structure / ground-up
   "Steel & Rebar",
   "Concrete & Aggregates",
   "Blockwork & Masonry",
-  "Electrical",
-  "Plumbing & MEP",
-  "Finishes",
+  // Fit-out / interiors
+  "Drywall & Partitions",
+  "Ceilings",
+  "Flooring",
+  "Glazing & Storefront",
   "Joinery",
+  "Painting & Decorating",
+  "FF&E",
+  // MEP
+  "Electrical",
+  "HVAC & Mechanical",
+  "Plumbing & MEP",
+  // Cross-cutting
+  "Finishes",
   "Equipment Hire",
   "Subcontractor",
   "General Supplies",

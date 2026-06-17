@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, DateField, NativeSelect } from "@/components/app/field";
+import { SectionCard } from "@/components/app/section-card";
+import { SubmitButton } from "@/components/app/submit-button";
 import { UNITS } from "@/lib/constants";
 import { num, formatMoney } from "@/lib/money";
 import { createPurchaseOrder, updatePurchaseOrder } from "./actions";
@@ -20,6 +24,8 @@ type LineRow = {
   qty: string;
   price: string;
   wbsId: string;
+  /** Links the line back to a material requirement so coverage clears on release. */
+  requirementId: string;
 };
 
 type PoDefaults = {
@@ -30,12 +36,19 @@ type PoDefaults = {
   expectedDate: string | null;
   paymentTerms: string | null;
   notes: string | null;
-  lines: { itemName: string; unit: string; quantity: string; unitPrice: string; wbsId: string | null }[];
+  lines: {
+    itemName: string;
+    unit: string;
+    quantity: string;
+    unitPrice: string;
+    wbsId: string | null;
+    requirementId?: string | null;
+  }[];
 };
 
 let lineSeq = 0;
 function blankLine(): LineRow {
-  return { key: lineSeq++, itemName: "", unit: "pcs", qty: "", price: "", wbsId: "" };
+  return { key: lineSeq++, itemName: "", unit: "pcs", qty: "", price: "", wbsId: "", requirementId: "" };
 }
 
 function PoFields({
@@ -44,7 +57,7 @@ function PoFields({
   projectOptions,
   wbsByProject,
   defaults,
-  currency = "AED",
+  currency = "USD",
 }: {
   errors: Record<string, string>;
   vendorOptions: Option[];
@@ -62,6 +75,7 @@ function PoFields({
           qty: String(Number(l.quantity)),
           price: String(Number(l.unitPrice)),
           wbsId: l.wbsId ?? "",
+          requirementId: l.requirementId ?? "",
         }))
       : [blankLine()],
   );
@@ -151,6 +165,8 @@ function PoFields({
               key={l.key}
               className="grid grid-cols-[1fr_auto_auto_auto_1fr_auto] items-end gap-2 rounded-lg border bg-muted/20 p-2"
             >
+              {/* Parallel array entry — keeps the line's requirement link aligned by index. */}
+              <input type="hidden" name="lineRequirementId" value={l.requirementId} />
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   Item
@@ -259,7 +275,7 @@ export function CreatePoDialog({
   vendorOptions,
   projectOptions,
   wbsByProject,
-  currency = "AED",
+  currency = "USD",
 }: {
   vendorOptions: Option[];
   projectOptions: Option[];
@@ -299,7 +315,7 @@ export function EditPoDialog({
   projectOptions,
   wbsByProject,
   defaults,
-  currency = "AED",
+  currency = "USD",
 }: {
   poId: string;
   vendorOptions: Option[];
@@ -335,5 +351,64 @@ export function EditPoDialog({
         </>
       )}
     </FormDialog>
+  );
+}
+
+/* ───────── standalone PO form (e.g. "raise PO from requirement") ───────── */
+
+export function NewPoForm({
+  vendorOptions,
+  projectOptions,
+  wbsByProject,
+  defaults,
+  currency = "USD",
+}: {
+  vendorOptions: Option[];
+  projectOptions: Option[];
+  wbsByProject: Record<string, Option[]>;
+  defaults?: PoDefaults;
+  currency?: string;
+}) {
+  const [state, formAction] = useActionState(createPurchaseOrder, null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state?.ok) {
+      toast.success(state.message ?? "Order created");
+      if (state.redirectTo) router.push(state.redirectTo);
+    } else if (state && !state.ok) {
+      toast.error(state.error);
+    }
+  }, [state, router]);
+
+  const errors = state && !state.ok ? (state.fieldErrors ?? {}) : {};
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <SectionCard title="Order details">
+        <div className="space-y-4">
+          <PoFields
+            errors={errors}
+            vendorOptions={vendorOptions}
+            projectOptions={projectOptions}
+            wbsByProject={wbsByProject}
+            defaults={defaults}
+            currency={currency}
+          />
+        </div>
+      </SectionCard>
+
+      {state && !state.ok && state.error && (
+        <p className="rounded-md bg-critical/10 px-3 py-2 text-sm text-critical">
+          {state.error}
+        </p>
+      )}
+
+      <div className="flex justify-end">
+        <SubmitButton pendingLabel="Creating…">
+          <Plus className="size-4" /> Create order
+        </SubmitButton>
+      </div>
+    </form>
   );
 }

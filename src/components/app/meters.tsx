@@ -57,9 +57,13 @@ export function CoverageBar({
   inbound: number;
   className?: string;
 }) {
-  const base = required > 0 ? required : Math.max(allocated + received + inbound, 1);
+  // A reservation draws from the same physical stock `received` counts, so don't
+  // stack them additively (that reads 100% on a requirement that's actually short).
+  // Show reserved, then only the received portion not already reserved, then inbound.
+  const onHand = Math.max(0, received - allocated);
+  const base = required > 0 ? required : Math.max(allocated + onHand + inbound, 1);
   const allocPct = Math.min(100, (allocated / base) * 100);
-  const receivedPct = Math.min(100 - allocPct, (received / base) * 100);
+  const receivedPct = Math.min(100 - allocPct, (onHand / base) * 100);
   const inboundPct = Math.min(100 - allocPct - receivedPct, (inbound / base) * 100);
   return (
     <div className={cn("flex h-1.5 w-full overflow-hidden rounded-[2px] bg-muted", className)}>

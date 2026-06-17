@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
@@ -98,6 +98,14 @@ export async function reverseCostPosting(
       return fail("Only manual postings can be reversed here — cancel the source document instead");
     if (orig.description?.startsWith("Reversal of"))
       return fail("This entry is already a reversal");
+    // Block a second reversal of the same posting (double-click / re-submit) —
+    // each reversal is a manual offset pointing back at this posting via sourceId.
+    const [existingReversal] = await tx
+      .select({ id: t.costPostings.id })
+      .from(t.costPostings)
+      .where(and(eq(t.costPostings.sourceId, orig.id), eq(t.costPostings.sourceType, "manual")))
+      .limit(1);
+    if (existingReversal) return fail("This posting has already been reversed");
     await tx.insert(t.costPostings).values({
       companyId: ctx.companyId,
       projectId: orig.projectId,

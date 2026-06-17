@@ -227,7 +227,7 @@ export function EditUserDialog({
               <Input id="title" name="title" defaultValue={user.title ?? ""} placeholder="Site Engineer" />
             </Field>
             <Field label="Phone" htmlFor="phone" error={errors.phone}>
-              <Input id="phone" name="phone" defaultValue={user.phone ?? ""} placeholder="+971…" />
+              <Input id="phone" name="phone" defaultValue={user.phone ?? ""} placeholder="+1 555 000 0000" />
             </Field>
           </div>
         </>
@@ -336,7 +336,7 @@ export function CompanySettingsForm({
           htmlFor="currencyCode"
           required
           error={errors.currencyCode}
-          hint="3-letter ISO code, e.g. AED."
+          hint="3-letter ISO code, e.g. USD."
         >
           <Input
             id="currencyCode"

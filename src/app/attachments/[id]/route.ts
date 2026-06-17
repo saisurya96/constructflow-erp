@@ -1,17 +1,8 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/auth/context";
-import { can, type Capability } from "@/lib/rbac";
+import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
-
-/** Capability required to download an attachment, by the entity it belongs to. */
-const ENTITY_CAP: Record<string, Capability> = {
-  purchase_order: "procurement.manage",
-  subcontract: "procurement.manage",
-  invoice: "billing.manage",
-  project: "projects.view",
-  change_order: "projects.view",
-  requirement: "projects.view",
-};
+import { ATTACHMENT_READ_CAP } from "../caps";
 
 /** Stream an attachment's bytes (RLS-scoped to the tenant + role-gated). */
 export async function GET(
@@ -33,7 +24,7 @@ export async function GET(
       .limit(1);
     if (!row || !row.data) return { status: 404, row: null };
     // Gate on the same capability that guards the owning module.
-    const cap = ENTITY_CAP[row.entityType];
+    const cap = ATTACHMENT_READ_CAP[row.entityType];
     if (cap && !can(ctx.role, cap)) return { status: 403, row: null };
     return { status: 200, row };
   });

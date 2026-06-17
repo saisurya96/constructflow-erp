@@ -27,8 +27,12 @@ import {
   updateProjectStatus,
 } from "./actions";
 import { raiseRequirement, updateRequirement } from "../requirements/actions";
+import { setWbsBudget } from "./board-actions";
 
 type Option = { id: string; label: string };
+/** A task option that also carries its WBS cost code, so the requirement form
+ *  can default the cost code from the chosen task. */
+type TaskOption = Option & { wbsId?: string | null };
 
 type ProjectDefaults = {
   id: string;
@@ -116,6 +120,29 @@ function ProjectFields({
           defaultValue={defaults?.contractValue ?? "0"}
         />
       </Field>
+      {!defaults && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="Status"
+            htmlFor="status"
+            hint="Pick 'Active' for a job already underway."
+          >
+            <NativeSelect id="status" name="status" defaultValue="planning">
+              <option value="planning">Planning</option>
+              <option value="active">Active</option>
+              <option value="on_hold">On hold</option>
+              <option value="completed">Completed</option>
+            </NativeSelect>
+          </Field>
+          <Field
+            label="Opening cost to date"
+            htmlFor="openingCost"
+            hint="Cost already spent before adoption — keeps margin honest."
+          >
+            <Input id="openingCost" name="openingCost" type="number" step="0.01" min="0" defaultValue="0" />
+          </Field>
+        </div>
+      )}
       {!defaults && (
         <Field
           label="Cost code template"
@@ -452,6 +479,61 @@ export function EditMilestoneDialog({
   );
 }
 
+/** Inline-editable budget cell for the Budget/WBS tab — saves on blur/Enter so
+ *  a full cost-loaded WBS can be filled in like a spreadsheet column. */
+export function WbsBudgetCell({
+  wbsId,
+  projectId,
+  budget,
+}: {
+  wbsId: string;
+  projectId: string;
+  budget: string;
+}) {
+  const initial = String(Number(budget));
+  const [value, setValue] = useState(initial);
+  const [saving, setSaving] = useState(false);
+
+  const commit = async () => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) {
+      setValue(initial);
+      return;
+    }
+    if (String(n) === initial) {
+      setValue(String(n));
+      return;
+    }
+    setSaving(true);
+    const res = await setWbsBudget({ wbsId, projectId, budget: n });
+    setSaving(false);
+    if (res && !res.ok) {
+      toast.error(res.error ?? "Could not update budget");
+      setValue(initial);
+    } else if (res?.ok) {
+      toast.success("Budget updated");
+    }
+  };
+
+  return (
+    <Input
+      type="number"
+      step="0.01"
+      min="0"
+      value={value}
+      onChange={(e) => setValue(e.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setValue(initial);
+      }}
+      disabled={saving}
+      aria-label="Budget"
+      className="ml-auto h-8 w-28 text-right tabular"
+    />
+  );
+}
+
 export function AddWbsDialog({ projectId }: { projectId: string }) {
   return (
     <FormDialog
@@ -590,10 +672,19 @@ function RequirementFields({
   defaults,
 }: {
   errors: Record<string, string>;
-  taskOptions: Option[];
+  taskOptions: TaskOption[];
   wbsOptions: Option[];
   defaults?: RequirementDefaults;
 }) {
+  const [taskId, setTaskId] = useState(defaults?.taskId ?? "");
+  const [wbsId, setWbsId] = useState(defaults?.wbsId ?? "");
+  // Picking a task defaults the cost code to that task's WBS — the task already
+  // carries it, so don't make the user re-pick. Still fully overridable.
+  const onTask = (id: string) => {
+    setTaskId(id);
+    const tk = taskOptions.find((o) => o.id === id);
+    if (tk?.wbsId) setWbsId(tk.wbsId);
+  };
   return (
     <>
       <Field label="Item" htmlFor="itemName" required error={errors.itemName}>
@@ -616,7 +707,12 @@ function RequirementFields({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="For task" htmlFor="taskId">
-          <NativeSelect id="taskId" name="taskId" defaultValue={defaults?.taskId ?? ""}>
+          <NativeSelect
+            id="taskId"
+            name="taskId"
+            value={taskId}
+            onChange={(e) => onTask(e.currentTarget.value)}
+          >
             <option value="">— none —</option>
             {taskOptions.map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -624,7 +720,12 @@ function RequirementFields({
           </NativeSelect>
         </Field>
         <Field label="Cost code" htmlFor="wbsId">
-          <NativeSelect id="wbsId" name="wbsId" defaultValue={defaults?.wbsId ?? ""}>
+          <NativeSelect
+            id="wbsId"
+            name="wbsId"
+            value={wbsId}
+            onChange={(e) => setWbsId(e.currentTarget.value)}
+          >
             <option value="">— none —</option>
             {wbsOptions.map((o) => (
               <option key={o.id} value={o.id}>{o.label}</option>
@@ -646,7 +747,7 @@ export function RaiseRequirementDialog({
   variant = "outline",
 }: {
   projectId: string;
-  taskOptions: Option[];
+  taskOptions: TaskOption[];
   wbsOptions: Option[];
   variant?: "default" | "outline";
 }) {
@@ -680,7 +781,7 @@ export function EditRequirementDialog({
   requirement,
 }: {
   projectId: string;
-  taskOptions: Option[];
+  taskOptions: TaskOption[];
   wbsOptions: Option[];
   requirement: RequirementDefaults;
 }) {
