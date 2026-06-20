@@ -14,6 +14,7 @@ import { inArray } from "drizzle-orm";
 import { hash } from "@node-rs/argon2";
 import * as s from "./schema";
 import { DEFAULT_WBS_TEMPLATE } from "../lib/constants";
+import { formatMoney, num } from "../lib/money";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
@@ -652,8 +653,10 @@ async function main() {
     entityType: "change_order",
     entityId: co1.id,
     // Approval amount is the COST (budget) impact that actually posts; revenue
-    // is carried in the title so the approver sees the margin effect.
-    title: "CO-0001 — Additional basement waterproofing · revenue AED 155,000",
+    // is carried in the title so the approver sees the margin effect. Build the
+    // title exactly as submitChangeOrder() does so seeded approvals are
+    // indistinguishable from live ones and always render the tenant's currency.
+    title: `${co1.number} — ${co1.title} · revenue ${formatMoney(num(co1.revenueImpact), co.currencyCode)}`,
     amount: m(120_000),
     projectId: p1,
     status: "pending",
@@ -713,11 +716,11 @@ async function main() {
     { companyId: co.id, actorId: pm, actorName: "Rajesh Kumar", action: "project.create", entityType: "project", entityId: p1, summary: "Created project Marina Heights Tower", risk: "neutral", projectId: p1 },
     { companyId: co.id, actorId: pm, actorName: "Rajesh Kumar", action: "requirement.raise", entityType: "requirement", summary: "Raised requirement: Reinforcement steel Y16 (45 ton)", risk: "warning", projectId: p1 },
     { companyId: co.id, actorId: buyer, actorName: "Leila Saad", action: "rfq.award", entityType: "rfq", entityId: rfq1.id, summary: "Awarded RFQ-0001 to Emirates Steel Industries", risk: "neutral", projectId: p1 },
-    { companyId: co.id, actorId: finance, actorName: "Sara Nasser", action: "po.approve", entityType: "purchase_order", entityId: po1.id, summary: "Approved & released PO-0001 (AED 130k)", risk: "warning", projectId: p1 },
+    { companyId: co.id, actorId: finance, actorName: "Sara Nasser", action: "po.approve", entityType: "purchase_order", entityId: po1.id, summary: "Approved & released PO-0001", risk: "warning", projectId: p1 },
     { companyId: co.id, actorId: storekeeper, actorName: "Marco Reyes", action: "grn.post", entityType: "goods_receipt", entityId: grn1.id, summary: "Posted GRN-0001 — 30 ton steel received", risk: "good", projectId: p1 },
     { companyId: co.id, actorId: storekeeper, actorName: "Marco Reyes", action: "stock.allocate", entityType: "allocation", summary: "Allocated 25 ton steel to raft foundation — block cleared", risk: "good", projectId: p1 },
-    { companyId: co.id, actorId: pm, actorName: "Rajesh Kumar", action: "changeorder.submit", entityType: "change_order", entityId: co1.id, summary: "Submitted CO-0001 for approval (AED 155k)", risk: "warning", projectId: p1 },
-    { companyId: co.id, actorId: finance, actorName: "Sara Nasser", action: "invoice.create", entityType: "invoice", entityId: inv1.id, summary: "Raised progress invoice INV-0001 (AED 1.89M)", risk: "neutral", projectId: p1 },
+    { companyId: co.id, actorId: pm, actorName: "Rajesh Kumar", action: "changeorder.submit", entityType: "change_order", entityId: co1.id, summary: "Submitted CO-0001 for approval", risk: "warning", projectId: p1 },
+    { companyId: co.id, actorId: finance, actorName: "Sara Nasser", action: "invoice.create", entityType: "invoice", entityId: inv1.id, summary: "Raised progress invoice INV-0001", risk: "neutral", projectId: p1 },
   );
   await db.insert(s.auditEvents).values(auditRows);
 
