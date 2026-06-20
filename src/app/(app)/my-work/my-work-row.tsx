@@ -29,7 +29,17 @@ export type MyTask = {
   overdue: boolean;
 };
 
-export function MyTaskRow({ task, canSchedule }: { task: MyTask; canSchedule: boolean }) {
+export function MyTaskRow({
+  task,
+  canSchedule,
+  canViewProject,
+}: {
+  task: MyTask;
+  canSchedule: boolean;
+  /** Stores/buyers can be assigned tasks but can't open the project page — show
+   *  the task name as plain text for them rather than a link to /forbidden. */
+  canViewProject: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -44,9 +54,13 @@ export function MyTaskRow({ task, canSchedule }: { task: MyTask; canSchedule: bo
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2.5">
       <div className="min-w-0">
-        <Link href={`/projects/${task.projectId}`} className="text-sm font-medium hover:underline">
-          {task.name}
-        </Link>
+        {canViewProject ? (
+          <Link href={`/projects/${task.projectId}`} className="text-sm font-medium hover:underline">
+            {task.name}
+          </Link>
+        ) : (
+          <span className="text-sm font-medium">{task.name}</span>
+        )}
         <p className="truncate text-xs text-muted-foreground">
           {task.projectCode} · {task.projectName}
         </p>

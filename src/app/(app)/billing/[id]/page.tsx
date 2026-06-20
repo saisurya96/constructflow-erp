@@ -127,6 +127,8 @@ export default async function InvoiceDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/billing"
+        backLabel="All invoices"
         eyebrow="Invoice"
         title={invoice.number}
         description={

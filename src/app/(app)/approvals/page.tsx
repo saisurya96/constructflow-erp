@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { aliasedTable, asc, desc, eq, ne } from "drizzle-orm";
 import { BadgeCheck, Check, History } from "lucide-react";
@@ -24,6 +25,20 @@ const APPROVAL_TYPE_TONE: Record<string, BadgeTone> = {
   invoice: "good",
 };
 
+/** Where an approver drills in to review what they're authorizing. */
+function approvalHref(a: {
+  type: string;
+  entityId: string | null;
+  projectId: string | null;
+}): string | null {
+  if ((a.type === "purchase_order" || a.type === "subcontract") && a.entityId)
+    return `/orders/${a.entityId}`;
+  if (a.type === "change_order" && a.projectId)
+    return `/projects/${a.projectId}?tab=changes`;
+  if (a.type === "invoice" && a.entityId) return `/billing/${a.entityId}`;
+  return null;
+}
+
 export default async function ApprovalsPage() {
   const user = await requireUser();
   const currency = user.currencyCode;
@@ -47,6 +62,7 @@ export default async function ApprovalsPage() {
       title: t.approvals.title,
       amount: t.approvals.amount,
       status: t.approvals.status,
+      entityId: t.approvals.entityId,
       projectId: t.approvals.projectId,
       projectCode: t.projects.code,
       projectName: t.projects.name,
@@ -148,7 +164,16 @@ export default async function ApprovalsPage() {
                       <StatusPill status={a.type} tones={APPROVAL_TYPE_TONE} />
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="font-medium text-foreground">{a.title}</span>
+                      {approvalHref(a) ? (
+                        <Link
+                          href={approvalHref(a)!}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {a.title}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-foreground">{a.title}</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {a.projectCode ?? "—"}
@@ -214,7 +239,16 @@ export default async function ApprovalsPage() {
                       <StatusPill status={a.type} tones={APPROVAL_TYPE_TONE} />
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="font-medium text-foreground">{a.title}</span>
+                      {approvalHref(a) ? (
+                        <Link
+                          href={approvalHref(a)!}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {a.title}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-foreground">{a.title}</span>
+                      )}
                       {a.decisionNote && (
                         <span className="block text-xs text-muted-foreground">
                           {a.decisionNote}

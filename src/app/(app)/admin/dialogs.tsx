@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { SubmitButton } from "@/components/app/submit-button";
 import { Field, NativeSelect } from "@/components/app/field";
+import { CURRENCY_OPTIONS } from "@/lib/constants";
 import { ROLE_LABELS } from "@/lib/rbac";
 import type { UserRole } from "@/db/schema";
 import {
@@ -40,7 +41,7 @@ export function InviteUserDialog() {
       submitLabel="Add user"
       trigger={
         <Button size="sm">
-          <UserPlus className="size-4" /> Invite / add user
+          <UserPlus className="size-4" /> Add user
         </Button>
       }
     >
@@ -332,20 +333,24 @@ export function CompanySettingsForm({
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field
-          label="Currency code"
+          label="Currency"
           htmlFor="currencyCode"
           required
           error={errors.currencyCode}
-          hint="3-letter ISO code, e.g. USD."
+          hint="Drives money formatting across the app."
         >
-          <Input
+          <NativeSelect
             id="currencyCode"
             name="currencyCode"
             required
-            maxLength={3}
-            className="uppercase"
             defaultValue={company.currencyCode}
-          />
+          >
+            {CURRENCY_OPTIONS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </NativeSelect>
         </Field>
         <Field
           label="VAT rate %"

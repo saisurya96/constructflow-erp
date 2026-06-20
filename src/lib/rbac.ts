@@ -23,6 +23,7 @@ export type Capability =
   | "schedule.manage"
   | "requirements.raise"
   | "requirements.source"
+  | "procurement.view"
   | "procurement.manage"
   | "vendors.manage"
   | "inventory.manage"
@@ -40,6 +41,9 @@ const CAPS: Record<Capability, UserRole[]> = {
   "schedule.manage": ["pm", "admin"],
   "requirements.raise": ["pm", "admin"],
   "requirements.source": ["buyer", "admin"],
+  // Read-only view of orders — buyers manage them, but finance/PM need to open
+  // an order to review it (e.g. a finance approver authorizing the spend).
+  "procurement.view": ["buyer", "finance", "pm", "admin"],
   "procurement.manage": ["buyer", "admin"],
   "vendors.manage": ["buyer", "admin"],
   "inventory.manage": ["storekeeper", "admin"],
@@ -124,7 +128,7 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
     "audit",
     "admin",
   ],
-  pm: ["dashboard", "mywork", "projects", "requirements", "approvals"],
+  pm: ["dashboard", "mywork", "projects", "requirements", "costing", "approvals"],
   buyer: ["dashboard", "mywork", "requirements", "rfqs", "orders", "vendors", "approvals"],
   storekeeper: ["dashboard", "mywork", "deliveries", "receipts", "inventory", "allocations"],
   finance: ["dashboard", "mywork", "projects", "costing", "billing", "approvals", "audit"],

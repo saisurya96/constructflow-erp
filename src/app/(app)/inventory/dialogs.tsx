@@ -206,6 +206,7 @@ export function ReserveAllocationDialog({
   available,
   unit,
   unitCost,
+  canSeeCost = true,
   projectOptions,
   taskOptions,
   requirementId,
@@ -220,6 +221,8 @@ export function ReserveAllocationDialog({
   available: number;
   unit: string;
   unitCost: number;
+  /** Hide landed unit cost from roles without costing.view (e.g. storekeeper). */
+  canSeeCost?: boolean;
   currency: string;
   projectOptions: Option[];
   /** task options keyed by project id (only the chosen project's tasks matter). */
@@ -234,7 +237,9 @@ export function ReserveAllocationDialog({
   return (
     <FormDialog
       title={`Reserve ${itemName}`}
-      description={`${available} ${unit} available · unit cost ${formatMoney(unitCost, currency)}`}
+      description={`${available} ${unit} available${
+        canSeeCost ? ` · unit cost ${formatMoney(unitCost, currency)}` : ""
+      }`}
       action={reserveAllocation}
       submitLabel="Reserve stock"
       trigger={

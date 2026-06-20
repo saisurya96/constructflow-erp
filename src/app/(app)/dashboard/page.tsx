@@ -86,18 +86,26 @@ export default async function DashboardPage() {
             }
           />
         ) : (
-          view.queue.map((item, i) => (
-            <ActionItemCard
-              key={`${item.title}-${i}`}
-              tone={item.tone}
-              title={item.title}
-              detail={item.detail}
-              impact={item.impact}
-              owner={item.owner}
-              href={item.href}
-              actionLabel={item.actionLabel}
-            />
-          ))
+          <>
+            {view.queue.map((item, i) => (
+              <ActionItemCard
+                key={`${item.title}-${i}`}
+                tone={item.tone}
+                title={item.title}
+                detail={item.detail}
+                impact={item.impact}
+                owner={item.owner}
+                href={item.href}
+                actionLabel={item.actionLabel}
+              />
+            ))}
+            {view.queueTotal > view.queue.length && (
+              <p className="px-1 pt-1 text-xs text-muted-foreground">
+                Showing the top {view.queue.length} of {view.queueTotal} items —
+                open the relevant area to see the rest.
+              </p>
+            )}
+          </>
         )}
       </SectionCard>
     </div>

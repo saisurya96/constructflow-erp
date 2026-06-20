@@ -32,9 +32,14 @@ export type QueueItem = {
 export type DashboardView = {
   kpis: Kpi[];
   queue: QueueItem[];
+  /** Total queue items before the display cap — lets the UI flag what's hidden. */
+  queueTotal: number;
   queueTitle: string;
   queueDescription: string;
 };
+
+/** How many action-queue items the dashboard shows before "view all". */
+export const QUEUE_CAP = 12;
 
 const SOON_WINDOW_DAYS = 14;
 
@@ -221,7 +226,7 @@ export async function pmDashboard(
       title: `Requirement: ${req.itemName}`,
       detail: `${req.projectName} · ${dueLabel(days)}`,
       impact: overdue ? "Material late" : "Material at risk",
-      href: `/projects/${req.projectId}`,
+      href: `/projects/${req.projectId}?tab=requirements`,
       actionLabel: "Review",
       rank: 200 + (overdue ? 40 : 0) - (days ?? 0),
     });
@@ -249,7 +254,7 @@ export async function pmDashboard(
         title: `Change order ${co.number}: ${co.title}`,
         detail: `${co.projectName} · cost impact ${formatCompact(num(co.costImpact), currency)}`,
         impact: "Awaiting approval",
-        href: `/projects/${co.projectId}`,
+        href: `/projects/${co.projectId}?tab=changes`,
         actionLabel: "Track",
         rank: 100 + num(co.costImpact) / 100000,
       });
@@ -259,6 +264,7 @@ export async function pmDashboard(
   return {
     kpis,
     queue: sortQueue(queue),
+    queueTotal: queue.length,
     queueTitle: "Action queue",
     queueDescription:
       "Blocked work, material shortages and changes that need a decision.",
@@ -407,6 +413,7 @@ export async function buyerDashboard(tx: Tx, currency: string): Promise<Dashboar
   return {
     kpis,
     queue: sortQueue(queue),
+    queueTotal: queue.length,
     queueTitle: "Procurement queue",
     queueDescription: "Requisitions to source and orders to chase.",
   };
@@ -509,7 +516,7 @@ export async function storekeeperDashboard(tx: Tx): Promise<DashboardView> {
       label: "GRNs this week",
       value: recentGrns.length,
       sub: "posted in last 7 days",
-      tone: "neutral",
+      tone: recentGrns.length ? "good" : "neutral",
     },
   ];
 
@@ -558,6 +565,7 @@ export async function storekeeperDashboard(tx: Tx): Promise<DashboardView> {
   return {
     kpis,
     queue: sortQueue(queue),
+    queueTotal: queue.length,
     queueTitle: "Stores queue",
     queueDescription:
       "Deliveries to receive, low stock to flag and allocations to issue.",
@@ -726,6 +734,7 @@ export async function financeDashboard(tx: Tx, currency: string): Promise<Dashbo
   return {
     kpis,
     queue: sortQueue(queue),
+    queueTotal: queue.length,
     queueTitle: "Finance queue",
     queueDescription: "Approvals, collections and budgets that need attention.",
   };
@@ -734,7 +743,7 @@ export async function financeDashboard(tx: Tx, currency: string): Promise<Dashbo
 /* ───────────────────────────── helpers ─────────────────────────── */
 
 function sortQueue(queue: QueueItem[]): QueueItem[] {
-  return queue.sort((a, b) => b.rank - a.rank).slice(0, 12);
+  return queue.sort((a, b) => b.rank - a.rank).slice(0, QUEUE_CAP);
 }
 
 function addDaysISO(days: number): string {

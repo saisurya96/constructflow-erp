@@ -26,7 +26,9 @@ export default async function OrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireCapability("procurement.manage");
+  // View is open to approvers (finance/PM) so they can review an order before
+  // authorizing it; every mutation control below is gated on procurement.manage.
+  const user = await requireCapability("procurement.view");
   const currency = user.currencyCode;
 
   const result = await db(async (tx) => {
@@ -140,6 +142,8 @@ export default async function OrderDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/orders"
+        backLabel="All orders"
         eyebrow="Procurement"
         title={
           <span className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import { SectionCard } from "@/components/app/section-card";
 import { ActionButton } from "@/components/app/action-button";
 import { AttachmentUploader } from "@/components/app/attachment-uploader";
 import { deleteAttachment } from "@/app/attachments/actions";
+import { ATTACHMENT_WRITE_CAP } from "@/app/attachments/caps";
 
 function formatBytes(n: number | null | undefined): string {
   const b = n ?? 0;
@@ -49,14 +50,22 @@ export async function AttachmentsPanel({
     return { items, userId: ctx.userId, role: ctx.role };
   });
 
+  // Only show the upload form to a role that can actually attach to this entity
+  // (the server action enforces the same cap) — otherwise it's a control that
+  // always errors, e.g. finance on a project (view ≠ manage).
+  const writeCap = ATTACHMENT_WRITE_CAP[entityType];
+  const canUpload = writeCap ? can(data.role, writeCap) : false;
+
   return (
     <SectionCard eyebrow="Attachments" title={title} noPadding>
-      <div className="border-b p-4">
-        <AttachmentUploader entityType={entityType} entityId={entityId} />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Drawings, signed copies, delivery notes, certificates — up to 8 MB each.
-        </p>
-      </div>
+      {canUpload && (
+        <div className="border-b p-4">
+          <AttachmentUploader entityType={entityType} entityId={entityId} />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Drawings, signed copies, delivery notes, certificates — up to 8 MB each.
+          </p>
+        </div>
+      )}
 
       {data.items.length === 0 ? (
         <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">

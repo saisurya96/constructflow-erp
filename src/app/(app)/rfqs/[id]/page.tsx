@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq } from "drizzle-orm";
 import {
-  ArrowLeft,
   FileText,
   Trophy,
   Clock,
@@ -11,6 +10,7 @@ import {
   Printer,
   Ban,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
@@ -25,7 +25,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { Button } from "@/components/ui/button";
 import { EnterQuoteDialog, EditRfqDialog, InviteVendorDialog } from "../dialogs";
-import { issueRfq, awardQuote, cancelRfq, reopenRfq } from "../actions";
+import { issueRfq, awardQuote, cancelRfq, reopenRfq, removeVendorFromRfq } from "../actions";
 
 export default async function RfqDetailPage({
   params,
@@ -202,6 +202,8 @@ export default async function RfqDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/rfqs"
+        backLabel="All RFQs"
         eyebrow="Request for quote"
         title={rfq.title}
         description={
@@ -217,9 +219,6 @@ export default async function RfqDetailPage({
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" render={<Link href="/rfqs" />}>
-              <ArrowLeft className="size-4" /> Back
-            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -230,7 +229,21 @@ export default async function RfqDetailPage({
             <StatusPill status={rfq.status} tones={RFQ_STATUS_TONE} />
             {canEdit && (
               <>
-                <EditRfqDialog rfq={{ id: rfq.id, title: rfq.title, dueDate: rfq.dueDate, notes: rfq.notes }} />
+                <EditRfqDialog
+                  rfq={{
+                    id: rfq.id,
+                    title: rfq.title,
+                    dueDate: rfq.dueDate,
+                    notes: rfq.notes,
+                    status: rfq.status,
+                  }}
+                  lines={lines.map((l) => ({
+                    id: l.id,
+                    itemName: l.itemName,
+                    unit: l.unit,
+                    quantity: l.quantity,
+                  }))}
+                />
                 <InviteVendorDialog rfqId={rfq.id} vendors={invitableVendors} />
               </>
             )}
@@ -393,7 +406,10 @@ export default async function RfqDetailPage({
                   <td className="px-4 py-2.5">Quote total</td>
                   {received.map((q) => {
                     const total = num(q.totalAmount);
-                    const isLowest = bestPrice !== null && total === bestPrice;
+                    // Only a fully-priced quote can be "lowest" — a partial total
+                    // that happens to equal bestPrice must not win the highlight.
+                    const isLowest =
+                      isComplete(q.id) && bestPrice !== null && total === bestPrice;
                     return (
                       <td
                         key={q.id}
@@ -521,13 +537,29 @@ export default async function RfqDetailPage({
                         </>
                       )}
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        {canAward && isPending && (
-                          <EnterQuoteDialog
-                            quoteId={q.id}
-                            vendorName={q.vendorName}
-                            lines={dialogLines}
-                            currency={currency}
-                          />
+                        {isPending && (canAward || canEdit) && (
+                          <span className="inline-flex items-center gap-1">
+                            {canAward && (
+                              <EnterQuoteDialog
+                                quoteId={q.id}
+                                vendorName={q.vendorName}
+                                lines={dialogLines}
+                                currency={currency}
+                              />
+                            )}
+                            {canEdit && (
+                              <ActionButton
+                                action={removeVendorFromRfq}
+                                fields={{ quoteId: q.id, rfqId: rfq.id }}
+                                variant="ghost"
+                                size="icon-sm"
+                                confirm={`Remove ${q.vendorName} from this RFQ?`}
+                                aria-label={`Remove ${q.vendorName}`}
+                              >
+                                <Trash2 className="size-4" />
+                              </ActionButton>
+                            )}
+                          </span>
                         )}
                         {canAward && q.status === "received" && (
                           <span className="inline-flex items-center gap-1">

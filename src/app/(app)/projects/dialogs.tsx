@@ -1,18 +1,29 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Boxes } from "lucide-react";
+import { Plus, Pencil, Boxes, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormDialog } from "@/components/app/form-dialog";
 import { Field, DateField, NativeSelect } from "@/components/app/field";
+import { StatusBadge } from "@/components/app/status-badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   UNITS,
   WBS_TEMPLATES,
   TASK_PRIORITY_ORDER,
   TASK_PRIORITY_LABELS,
+  PROJECT_STATUS_TONE,
+  PROJECT_STATUSES,
+  titleCase,
 } from "@/lib/constants";
 import {
   createProject,
@@ -24,6 +35,7 @@ import {
   createWbsCode,
   updateWbsCode,
   createChangeOrder,
+  updateChangeOrder,
   updateProjectStatus,
 } from "./actions";
 import { raiseRequirement, updateRequirement } from "../requirements/actions";
@@ -45,6 +57,21 @@ type ProjectDefaults = {
   description: string | null;
 };
 
+/** One-line meaning for each project status, shown under the label in the menu
+ *  so changing a project's lifecycle state is a deliberate, informed choice. */
+const PROJECT_STATUS_HINTS: Record<string, string> = {
+  planning: "Pre-construction — scoping, design, mobilising.",
+  active: "Work is underway on site.",
+  on_hold: "Paused — work has temporarily stopped.",
+  completed: "Work is finished and handed over.",
+  archived: "Closed out and filed away.",
+};
+
+/** Project status is lifecycle state, not a form field — so it reads as the same
+ *  badge shown in the project list, and is changed via a deliberate menu rather
+ *  than a stray <select> (which also let a scroll silently change it). The choice
+ *  applies optimistically and settles to the server-confirmed value once
+ *  `updateProjectStatus`'s revalidatePath refreshes this page in place. */
 export function ProjectStatusControl({
   projectId,
   status,
@@ -52,41 +79,51 @@ export function ProjectStatusControl({
   projectId: string;
   status: string;
 }) {
-  const [state, formAction] = useActionState(updateProjectStatus, null);
-  // Controlled value so the dropdown reflects the persisted status. An
-  // uncontrolled <select defaultValue> keeps its initial DOM value across
-  // revalidation, so after a successful change it would snap back to the old
-  // status (looking like the save failed). Adopt the server value when the
-  // prop updates, and roll back to it if the action errors.
-  const [value, setValue] = useState(status);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setValue(status), [status]);
-  useEffect(() => {
-    if (state && !state.ok) {
-      toast.error(state.error);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setValue(status);
-    }
-  }, [state, status]);
+  const [isPending, startTransition] = useTransition();
+  const [optimisticStatus, setOptimisticStatus] = useOptimistic(status);
+
+  function apply(next: string) {
+    if (next === optimisticStatus) return;
+    startTransition(async () => {
+      setOptimisticStatus(next);
+      const fd = new FormData();
+      fd.set("projectId", projectId);
+      fd.set("status", next);
+      const res = await updateProjectStatus(null, fd);
+      if (res && !res.ok) toast.error(res.error);
+    });
+  }
+
   return (
-    <form action={formAction}>
-      <input type="hidden" name="projectId" value={projectId} />
-      <NativeSelect
-        name="status"
-        value={value}
-        className="h-8 w-40 text-xs"
-        onChange={(e) => {
-          setValue(e.currentTarget.value);
-          e.currentTarget.form?.requestSubmit();
-        }}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={isPending}
+        aria-label={`Project status: ${titleCase(optimisticStatus)}. Change status`}
+        className="group rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
       >
-        <option value="planning">Planning</option>
-        <option value="active">Active</option>
-        <option value="on_hold">On hold</option>
-        <option value="completed">Completed</option>
-        <option value="archived">Archived</option>
-      </NativeSelect>
-    </form>
+        <StatusBadge
+          tone={PROJECT_STATUS_TONE[optimisticStatus] ?? "neutral"}
+          className="h-8 gap-1.5 px-3 text-xs transition-shadow group-hover:ring-2 group-data-[popup-open]:ring-2"
+        >
+          {titleCase(optimisticStatus)}
+          <ChevronDown className="size-3.5 opacity-60" />
+        </StatusBadge>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuRadioGroup value={optimisticStatus} onValueChange={apply}>
+          {PROJECT_STATUSES.map((s) => (
+            <DropdownMenuRadioItem key={s} value={s} className="items-start py-1.5">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">{titleCase(s)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {PROJECT_STATUS_HINTS[s]}
+                </span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -612,6 +649,59 @@ export function EditWbsDialog({
   );
 }
 
+export type ChangeOrderDefaults = {
+  id: string;
+  title: string;
+  costImpact: string;
+  revenueImpact: string;
+  scheduleImpactDays: number;
+  description: string | null;
+};
+
+function ChangeOrderFields({
+  errors,
+  defaults,
+}: {
+  errors: Record<string, string>;
+  defaults?: ChangeOrderDefaults;
+}) {
+  return (
+    <>
+      <Field label="Title" htmlFor="title" required error={errors.title}>
+        <Input
+          id="title"
+          name="title"
+          required
+          placeholder="Additional waterproofing"
+          defaultValue={defaults?.title ?? ""}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Cost impact" htmlFor="costImpact" error={errors.costImpact}>
+          <Input id="costImpact" name="costImpact" type="number" step="0.01" defaultValue={defaults?.costImpact ?? "0"} />
+        </Field>
+        <Field label="Revenue impact" htmlFor="revenueImpact" error={errors.revenueImpact}>
+          <Input id="revenueImpact" name="revenueImpact" type="number" step="0.01" defaultValue={defaults?.revenueImpact ?? "0"} />
+        </Field>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Use a negative value for omissions / deductive variations or client credits.
+      </p>
+      <Field label="Schedule impact (days)" htmlFor="scheduleImpactDays">
+        <Input
+          id="scheduleImpactDays"
+          name="scheduleImpactDays"
+          type="number"
+          defaultValue={String(defaults?.scheduleImpactDays ?? 0)}
+        />
+      </Field>
+      <Field label="Reason / description" htmlFor="description">
+        <Textarea id="description" name="description" rows={2} defaultValue={defaults?.description ?? ""} />
+      </Field>
+    </>
+  );
+}
+
 export function AddChangeOrderDialog({ projectId }: { projectId: string }) {
   return (
     <FormDialog
@@ -627,26 +717,37 @@ export function AddChangeOrderDialog({ projectId }: { projectId: string }) {
       {({ errors }) => (
         <>
           <input type="hidden" name="projectId" value={projectId} />
-          <Field label="Title" htmlFor="title" required error={errors.title}>
-            <Input id="title" name="title" required placeholder="Additional waterproofing" />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Cost impact" htmlFor="costImpact" error={errors.costImpact}>
-              <Input id="costImpact" name="costImpact" type="number" step="0.01" defaultValue="0" />
-            </Field>
-            <Field label="Revenue impact" htmlFor="revenueImpact" error={errors.revenueImpact}>
-              <Input id="revenueImpact" name="revenueImpact" type="number" step="0.01" defaultValue="0" />
-            </Field>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Use a negative value for omissions / deductive variations or client credits.
-          </p>
-          <Field label="Schedule impact (days)" htmlFor="scheduleImpactDays">
-            <Input id="scheduleImpactDays" name="scheduleImpactDays" type="number" defaultValue="0" />
-          </Field>
-          <Field label="Reason / description" htmlFor="description">
-            <Textarea id="description" name="description" rows={2} />
-          </Field>
+          <ChangeOrderFields errors={errors} />
+        </>
+      )}
+    </FormDialog>
+  );
+}
+
+export function EditChangeOrderDialog({
+  projectId,
+  changeOrder,
+}: {
+  projectId: string;
+  changeOrder: ChangeOrderDefaults;
+}) {
+  return (
+    <FormDialog
+      title="Edit change order"
+      description="Only draft change orders can be edited."
+      action={updateChangeOrder}
+      submitLabel="Save changes"
+      trigger={
+        <Button size="xs" variant="outline">
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      }
+    >
+      {({ errors }) => (
+        <>
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="changeOrderId" value={changeOrder.id} />
+          <ChangeOrderFields errors={errors} defaults={changeOrder} />
         </>
       )}
     </FormDialog>
@@ -735,6 +836,15 @@ function RequirementFields({
       </div>
       <Field label="Needed by" htmlFor="neededBy">
         <DateField name="neededBy" defaultValue={defaults?.neededBy ?? undefined} />
+      </Field>
+      <Field label="Notes / specification" htmlFor="description">
+        <Textarea
+          id="description"
+          name="description"
+          rows={2}
+          placeholder="Grade, spec, delivery notes…"
+          defaultValue={defaults?.description ?? ""}
+        />
       </Field>
     </>
   );

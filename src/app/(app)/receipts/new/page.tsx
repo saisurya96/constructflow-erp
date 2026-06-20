@@ -1,12 +1,9 @@
-import Link from "next/link";
 import { asc, eq, inArray } from "drizzle-orm";
-import { ArrowLeft } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
 import { num } from "@/lib/money";
 import { todayISO } from "@/lib/dates";
 import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
 import { NewGrnForm, type PoOption } from "../new-form";
 
 const OPEN_STATUSES = ["released", "partially_received"] as const;
@@ -94,14 +91,11 @@ export default async function NewReceiptPage({
   return (
     <div>
       <PageHeader
+        backHref="/deliveries"
+        backLabel="All deliveries"
         eyebrow="Goods receipt"
         title="New goods receipt"
         description="Confirm what was delivered against a released order to book stock and cost."
-        actions={
-          <Button size="sm" variant="outline" render={<Link href="/deliveries" />}>
-            <ArrowLeft className="size-4" /> Back to deliveries
-          </Button>
-        }
       />
 
       <NewGrnForm

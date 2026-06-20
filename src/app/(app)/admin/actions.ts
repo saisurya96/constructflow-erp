@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { CURRENCY_OPTIONS } from "@/lib/constants";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
@@ -221,10 +222,12 @@ export async function resetUserPassword(
 
 const companySchema = z.object({
   name: z.string().min(2, "Company name is required"),
-  currencyCode: z
-    .string()
-    .min(3, "Use a 3-letter currency code")
-    .max(3, "Use a 3-letter currency code"),
+  // Constrain to supported codes (same list as signup) — a free-text 3-letter
+  // field lets a typo like "USX" through, and formatMoney then renders every
+  // amount app-wide as "USX 1,234" with no symbol.
+  currencyCode: z.enum(CURRENCY_OPTIONS, {
+    message: "Select a supported currency",
+  }),
   vatRate: z.coerce.number().min(0, "VAT rate cannot be negative").max(100),
   poApprovalThreshold: z.coerce.number().min(0, "Threshold cannot be negative"),
   address: z.string().optional(),

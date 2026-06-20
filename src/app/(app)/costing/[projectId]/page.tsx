@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq } from "drizzle-orm";
-import { Calculator, ArrowLeft } from "lucide-react";
+import { Calculator } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -15,7 +14,6 @@ import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
-import { Button } from "@/components/ui/button";
 import { PostCostDialog } from "../dialogs";
 import { reverseCostPosting } from "../actions";
 
@@ -110,13 +108,9 @@ export default async function JobCostingDetailPage({
 
   return (
     <div>
-      <div className="mb-4">
-        <Button render={<Link href="/costing" />} variant="ghost" size="xs">
-          <ArrowLeft className="size-3.5" /> Back to portfolio
-        </Button>
-      </div>
-
       <PageHeader
+        backHref="/costing"
+        backLabel="Cost portfolio"
         eyebrow="Job ledger"
         title={project.name}
         description={

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
-import { num, formatMoney } from "@/lib/money";
+import { num, formatMoneyExact } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { titleCase } from "@/lib/constants";
 import { DocumentSheet } from "@/components/app/document-sheet";
@@ -13,7 +13,7 @@ export default async function PoPrintPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireCapability("procurement.manage");
+  await requireCapability("procurement.view");
 
   const result = await db(async (tx) => {
     const [po] = await tx
@@ -145,10 +145,10 @@ export default async function PoPrintPage({
                 {num(l.quantity)} {l.unit}
               </td>
               <td className="py-2 px-2 text-right tabular">
-                {formatMoney(l.unitPrice, currency)}
+                {formatMoneyExact(l.unitPrice, currency)}
               </td>
               <td className="py-2 pl-2 text-right tabular">
-                {formatMoney(l.lineTotal, currency)}
+                {formatMoneyExact(l.lineTotal, currency)}
               </td>
             </tr>
           ))}
@@ -159,15 +159,15 @@ export default async function PoPrintPage({
         <dl className="w-64 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular">{formatMoney(po.subtotal, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(po.subtotal, currency)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">VAT</dt>
-            <dd className="tabular">{formatMoney(po.taxAmount, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(po.taxAmount, currency)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
             <dt>Total</dt>
-            <dd className="tabular">{formatMoney(po.totalAmount, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(po.totalAmount, currency)}</dd>
           </div>
         </dl>
       </div>

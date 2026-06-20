@@ -27,6 +27,9 @@ export default async function AllocationsPage() {
   const user = await requireUser();
   if (!can(user.role, "inventory.allocate")) redirect("/forbidden");
   const canAllocate = can(user.role, "inventory.allocate");
+  // Stores can allocate but must not see buyer-negotiated landed cost — mirror
+  // the wall the inventory table applies, so the Reserve dialog doesn't leak it.
+  const canSeeCost = can(user.role, "costing.view");
   const currency = user.currencyCode;
 
   const data = await db(async (tx) => {
@@ -238,6 +241,7 @@ export default async function AllocationsPage() {
                             available={match.available}
                             unit={match.unit}
                             unitCost={num(match.unitCost)}
+                            canSeeCost={canSeeCost}
                             projectOptions={projectOptions}
                             taskOptions={tasksByProject.get(r.projectId) ?? []}
                             requirementId={r.id}
@@ -294,6 +298,7 @@ export default async function AllocationsPage() {
                         available={s.available}
                         unit={s.unit}
                         unitCost={num(s.unitCost)}
+                        canSeeCost={canSeeCost}
                         projectOptions={projectOptions}
                         taskOptions={[]}
                         currency={currency}

@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { CalendarClock, MapPin, User2, AlertTriangle, Trash2 } from "lucide-react";
+import { CalendarClock, MapPin, User2, AlertTriangle, Trash2, Receipt } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -12,6 +13,7 @@ import {
   PROJECT_STATUS_TONE,
   REQUIREMENT_STATUS_TONE,
   CHANGE_ORDER_STATUS_TONE,
+  INVOICE_STATUS_TONE,
 } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -22,6 +24,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { AttachmentsPanel } from "@/components/app/attachments-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { WorkViews } from "../work-views";
 import {
   AddTaskDialog,
@@ -31,6 +34,7 @@ import {
   EditWbsDialog,
   WbsBudgetCell,
   AddChangeOrderDialog,
+  EditChangeOrderDialog,
   RaiseRequirementDialog,
   EditRequirementDialog,
   ProjectStatusControl,
@@ -39,17 +43,29 @@ import {
 import { cancelRequirement } from "../../requirements/actions";
 import {
   reachMilestone,
+  revertMilestone,
   submitChangeOrder,
+  deleteChangeOrder,
+  reopenChangeOrder,
   deleteMilestone,
   deleteWbsCode,
 } from "../actions";
 
+const PROJECT_TABS = ["schedule", "budget", "requirements", "changes", "billing"] as const;
+
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  const { tab } = await searchParams;
+  // Deep-link support: dashboard/approvals cards point at a specific tab.
+  const initialTab = PROJECT_TABS.includes(tab as (typeof PROJECT_TABS)[number])
+    ? (tab as string)
+    : "schedule";
   const user = await requireCapability("projects.view");
   const currency = user.currencyCode;
 
@@ -148,24 +164,45 @@ export default async function ProjectDetailPage({
       .from(t.users)
       .where(eq(t.users.isActive, true));
 
+    // "Billed to date" must be NET (ex-VAT) so it's apples-to-apples with the
+    // ex-VAT contract value — VAT is a pass-through tax added on top and doesn't
+    // count toward the contract. (This matches the over-billing guard in
+    // billing/actions.ts, which also compares net subtotals.)
     const [billedRow] = await tx
-      .select({ b: sql<string>`coalesce(sum(${t.invoices.totalAmount}), 0)` })
+      .select({ b: sql<string>`coalesce(sum(${t.invoices.subtotal}), 0)` })
       .from(t.invoices)
       .where(and(eq(t.invoices.projectId, id), ne(t.invoices.status, "void")));
+
+    // This project's invoices — so the owner can see what makes up "billed to
+    // date" without scanning the global billing list.
+    const invoices = await tx
+      .select({
+        id: t.invoices.id,
+        number: t.invoices.number,
+        type: t.invoices.type,
+        status: t.invoices.status,
+        totalAmount: t.invoices.totalAmount,
+        amountPaid: t.invoices.amountPaid,
+        issueDate: t.invoices.issueDate,
+      })
+      .from(t.invoices)
+      .where(eq(t.invoices.projectId, id))
+      .orderBy(desc(t.invoices.createdAt));
 
     const coverage = await getRequirementCoverage(tx, id);
     const cost = await getProjectCost(tx, id);
 
-    return { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed: num(billedRow?.b) };
+    return { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed: num(billedRow?.b), invoices };
   });
 
   if (!result) notFound();
-  const { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed } = result;
+  const { project, wbs, tasks, checklist, comments, milestones, requirements, changeOrders, wbsCosts, members, coverage, cost, billed, invoices } = result;
 
   const canManage = can(user.role, "projects.manage");
   const canSchedule = can(user.role, "schedule.manage");
   const canReq = can(user.role, "requirements.raise");
   const canCO = can(user.role, "changeorders.manage");
+  const canBill = can(user.role, "billing.manage");
 
   const wbsOptions = wbs.map((w) => ({ id: w.id, label: `${w.code} — ${w.name}` }));
   const taskOptions = tasks.map((tk) => ({ id: tk.id, label: tk.name, wbsId: tk.wbsId }));
@@ -231,6 +268,8 @@ export default async function ProjectDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/projects"
+        backLabel="All projects"
         eyebrow="Project"
         title={project.name}
         description={
@@ -333,12 +372,13 @@ export default async function ProjectDetailPage({
         )}
       </SectionCard>
 
-      <Tabs defaultValue="schedule">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
           <TabsTrigger value="budget">Budget / WBS</TabsTrigger>
           <TabsTrigger value="requirements">Requirements</TabsTrigger>
           <TabsTrigger value="changes">Change Orders</TabsTrigger>
+          <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
 
         {/* ─── Schedule ─── */}
@@ -416,6 +456,16 @@ export default async function ProjectDetailPage({
                             size="xs"
                           >
                             Mark reached
+                          </ActionButton>
+                        )}
+                        {canSchedule && ms.status === "reached" && (
+                          <ActionButton
+                            action={revertMilestone}
+                            fields={{ milestoneId: ms.id, projectId: project.id }}
+                            variant="outline"
+                            size="xs"
+                          >
+                            Mark pending
                           </ActionButton>
                         )}
                         {canSchedule && ms.status !== "invoiced" && (
@@ -548,12 +598,15 @@ export default async function ProjectDetailPage({
                   return (
                     <div key={r.id} className="px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm font-medium">{r.itemName}</p>
                           <p className="text-xs text-muted-foreground">
                             {num(r.quantity)} {r.unit} · needed {formatDate(r.neededBy)}
                             {estValue > 0 && <> · est {formatMoney(estValue, currency)}</>}
                           </p>
+                          {r.description && (
+                            <p className="mt-0.5 text-xs text-muted-foreground/80">{r.description}</p>
+                          )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
                           <StatusPill status={r.status} tones={REQUIREMENT_STATUS_TONE} />
@@ -654,19 +707,115 @@ export default async function ProjectDetailPage({
                           <StatusPill status={co.status} tones={CHANGE_ORDER_STATUS_TONE} />
                         </td>
                         {canCO && (
-                          <td className="px-4 py-2.5 text-right">
-                            {co.status === "draft" && (
-                              <ActionButton
-                                action={submitChangeOrder}
-                                fields={{ changeOrderId: co.id, projectId: project.id }}
-                                variant="outline"
-                                size="xs"
-                              >
-                                Submit
-                              </ActionButton>
-                            )}
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {co.status === "draft" && (
+                                <>
+                                  <EditChangeOrderDialog
+                                    projectId={project.id}
+                                    changeOrder={{
+                                      id: co.id,
+                                      title: co.title,
+                                      costImpact: co.costImpact,
+                                      revenueImpact: co.revenueImpact,
+                                      scheduleImpactDays: co.scheduleImpactDays,
+                                      description: co.description,
+                                    }}
+                                  />
+                                  <ActionButton
+                                    action={submitChangeOrder}
+                                    fields={{ changeOrderId: co.id, projectId: project.id }}
+                                    variant="outline"
+                                    size="xs"
+                                  >
+                                    Submit
+                                  </ActionButton>
+                                </>
+                              )}
+                              {co.status === "rejected" && (
+                                <ActionButton
+                                  action={reopenChangeOrder}
+                                  fields={{ changeOrderId: co.id, projectId: project.id }}
+                                  variant="outline"
+                                  size="xs"
+                                >
+                                  Reopen
+                                </ActionButton>
+                              )}
+                              {(co.status === "draft" || co.status === "rejected") && (
+                                <ActionButton
+                                  action={deleteChangeOrder}
+                                  fields={{ changeOrderId: co.id, projectId: project.id }}
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  confirm={`Delete ${co.number}? This can't be undone.`}
+                                  aria-label={`Delete ${co.number}`}
+                                >
+                                  <Trash2 className="size-4" />
+                                </ActionButton>
+                              )}
+                            </div>
                           </td>
                         )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
+
+        {/* ─── Billing ─── */}
+        <TabsContent value="billing" className="space-y-4">
+          <SectionCard
+            title="Invoices"
+            description="Invoices raised against this project. Billed to date (above) is net of VAT."
+            noPadding
+            actions={
+              canBill ? (
+                <Button size="sm" variant="outline" render={<Link href="/billing" />}>
+                  <Receipt className="size-4" /> New invoice
+                </Button>
+              ) : null
+            }
+          >
+            {invoices.length === 0 ? (
+              <div className="p-6">
+                <EmptyState
+                  icon={<Receipt className="size-5" />}
+                  title="No invoices yet"
+                  description="Progress and milestone invoices for this project will appear here."
+                />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Invoice</th>
+                      <th className="px-4 py-2.5 font-medium">Type</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Total</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Paid</th>
+                      <th className="px-4 py-2.5 font-medium">Issued</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((inv) => (
+                      <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/40">
+                        <td className="px-4 py-2.5 font-medium">
+                          <Link href={`/billing/${inv.id}`} className="hover:underline">
+                            {inv.number}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-2.5 capitalize text-muted-foreground">{inv.type}</td>
+                        <td className="px-4 py-2.5">
+                          <StatusPill status={inv.status} tones={INVOICE_STATUS_TONE} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(inv.totalAmount, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(inv.amountPaid, currency)}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{formatDate(inv.issueDate)}</td>
                       </tr>
                     ))}
                   </tbody>

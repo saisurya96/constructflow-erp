@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { Tx } from "@/db/client";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
+import { recomputeRequirementCoverage } from "@/lib/effects";
 import * as t from "@/db/schema";
 import {
   parseForm,
@@ -82,6 +84,49 @@ export async function raiseRequirement(
   });
 }
 
+/**
+ * Re-derive a task's "blocked by material shortage" flag from whether it still
+ * has any open (uncovered) requirement. Mirrors the block-on-raise /
+ * unblock-on-cancel logic so re-pointing a requirement's task link can't leave
+ * a stale flag (a false banner on the old task, or no flag on the new one).
+ */
+async function reevaluateTaskBlocked(tx: Tx, taskId: string): Promise<void> {
+  const open = await tx
+    .select({ id: t.projectRequirements.id })
+    .from(t.projectRequirements)
+    .where(
+      and(
+        eq(t.projectRequirements.taskId, taskId),
+        ne(t.projectRequirements.status, "cancelled"),
+        ne(t.projectRequirements.status, "fulfilled"),
+      ),
+    );
+  const [task] = await tx
+    .select({ status: t.tasks.status })
+    .from(t.tasks)
+    .where(eq(t.tasks.id, taskId))
+    .limit(1);
+  if (!task) return;
+  if (open.length > 0) {
+    // Still has an unmet need → block, but never downgrade a done task.
+    if (task.status !== "done")
+      await tx
+        .update(t.tasks)
+        .set({ isBlocked: true, status: "blocked", updatedAt: new Date() })
+        .where(eq(t.tasks.id, taskId));
+  } else {
+    // No open need left → clear the flag and lift it off "blocked".
+    await tx
+      .update(t.tasks)
+      .set({
+        isBlocked: false,
+        ...(task.status === "blocked" ? { status: "in_progress" as const } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(t.tasks.id, taskId));
+  }
+}
+
 const requirementUpdateSchema = z.object({
   requirementId: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -105,17 +150,22 @@ export async function updateRequirement(
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "requirements.raise")) return fail("You don't have permission");
     const [existing] = await tx
-      .select({ status: t.projectRequirements.status })
+      .select({
+        status: t.projectRequirements.status,
+        taskId: t.projectRequirements.taskId,
+      })
       .from(t.projectRequirements)
       .where(eq(t.projectRequirements.id, d.requirementId))
       .limit(1);
     if (!existing) return fail("Requirement not found");
     if (existing.status === "cancelled" || existing.status === "fulfilled")
       return fail("A cancelled or fulfilled requirement can't be edited");
+    const prevTaskId = existing.taskId;
+    const newTaskId = d.taskId ?? null;
     await tx
       .update(t.projectRequirements)
       .set({
-        taskId: d.taskId ?? null,
+        taskId: newTaskId,
         wbsId: d.wbsId ?? null,
         itemName: d.itemName,
         unit: d.unit,
@@ -126,6 +176,14 @@ export async function updateRequirement(
         updatedAt: new Date(),
       })
       .where(eq(t.projectRequirements.id, d.requirementId));
+    // Re-derive coverage status from the (possibly changed) quantity so the
+    // stored status pill never drifts from the live coverage bar.
+    await recomputeRequirementCoverage(tx, d.requirementId);
+    // Keep task "blocked by shortage" flags honest if the task link changed.
+    if (prevTaskId !== newTaskId) {
+      if (prevTaskId) await reevaluateTaskBlocked(tx, prevTaskId);
+      if (newTaskId) await reevaluateTaskBlocked(tx, newTaskId);
+    }
     await audit(tx, ctx, {
       action: "requirement.update",
       entityType: "requirement",

@@ -31,6 +31,29 @@ export function formatMoney(
   }
 }
 
+/**
+ * Like formatMoney but always shows exact cents (2 dp). Use on legal/financial
+ * documents — PO and invoice PDFs — where rounding line amounts to whole units
+ * lets the printed total fail to equal the sum of the displayed lines.
+ */
+export function formatMoneyExact(
+  v: string | number | null | undefined,
+  currency = "USD",
+): string {
+  const value = num(v);
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${formatNumber(value, 2)}`;
+  }
+}
+
 export function formatNumber(
   v: string | number | null | undefined,
   maximumFractionDigits = 2,

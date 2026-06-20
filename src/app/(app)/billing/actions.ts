@@ -17,7 +17,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { money, num } from "@/lib/money";
+import { formatMoney, money, num } from "@/lib/money";
 import { todayISO } from "@/lib/dates";
 
 /* ───────────────────────────── create invoice ───────────────────────────── */
@@ -208,7 +208,7 @@ export async function sendInvoice(
       action: "invoice.send",
       entityType: "invoice",
       entityId: inv.id,
-      summary: `Sent ${inv.number} (${money(num(inv.totalAmount))})`,
+      summary: `Sent ${inv.number} (${formatMoney(num(inv.totalAmount), ctx.currencyCode)})`,
       risk: "neutral",
       projectId: inv.projectId,
     });
@@ -283,7 +283,7 @@ export async function recordPayment(
       action: "invoice.payment",
       entityType: "invoice",
       entityId: inv.id,
-      summary: `Recorded ${money(d.amount)} payment on ${inv.number} (${nextStatus})`,
+      summary: `Recorded ${formatMoney(d.amount, ctx.currencyCode)} payment on ${inv.number} (${nextStatus})`,
       risk: "good",
       projectId: inv.projectId,
     });
@@ -311,6 +311,10 @@ export async function voidInvoice(
     if (!inv) return fail("Invoice not found");
     if (inv.status === "paid") return fail("A fully paid invoice cannot be voided");
     if (inv.status === "void") return fail("Invoice is already void");
+    // Don't strand real money: an invoice with recorded payments must have those
+    // reversed first, otherwise the received cash silently drops out of reporting.
+    if (num(inv.amountPaid) > 0)
+      return fail("Reverse the recorded payments before voiding this invoice");
 
     await tx
       .update(t.invoices)
@@ -364,6 +368,8 @@ export async function reversePayment(
       .limit(1)
       .for("update");
     if (!inv) return fail("Invoice not found");
+    if (inv.status === "void")
+      return fail("Cannot reverse a payment on a voided invoice");
     const [payment] = await tx
       .select()
       .from(t.payments)

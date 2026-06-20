@@ -153,6 +153,14 @@ export function titleCase(s: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export const PROJECT_STATUSES = [
+  "planning",
+  "active",
+  "on_hold",
+  "completed",
+  "archived",
+] as const;
+
 export const PROJECT_STATUS_TONE: Record<string, BadgeTone> = {
   planning: "info",
   active: "good",

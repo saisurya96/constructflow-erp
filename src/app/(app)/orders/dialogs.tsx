@@ -58,6 +58,7 @@ function PoFields({
   wbsByProject,
   defaults,
   currency = "USD",
+  isEdit = false,
 }: {
   errors: Record<string, string>;
   vendorOptions: Option[];
@@ -65,6 +66,9 @@ function PoFields({
   wbsByProject: Record<string, Option[]>;
   defaults?: PoDefaults;
   currency?: string;
+  /** Type (PO vs subcontract) is fixed once a numbered order exists — show it
+   *  read-only when editing so we don't present a control whose value is dropped. */
+  isEdit?: boolean;
 }) {
   const [lines, setLines] = useState<LineRow[]>(() =>
     defaults && defaults.lines.length
@@ -99,10 +103,18 @@ function PoFields({
     <>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Type" htmlFor="type">
-          <NativeSelect id="type" name="type" defaultValue={defaults?.type ?? "purchase_order"}>
-            <option value="purchase_order">Purchase order</option>
-            <option value="subcontract">Subcontract</option>
-          </NativeSelect>
+          {isEdit ? (
+            <div className="flex h-8 items-center rounded-md border border-input bg-muted/40 px-3 text-xs text-muted-foreground">
+              {(defaults?.type ?? "purchase_order") === "subcontract"
+                ? "Subcontract"
+                : "Purchase order"}
+            </div>
+          ) : (
+            <NativeSelect id="type" name="type" defaultValue={defaults?.type ?? "purchase_order"}>
+              <option value="purchase_order">Purchase order</option>
+              <option value="subcontract">Subcontract</option>
+            </NativeSelect>
+          )}
         </Field>
         <Field label="Vendor" htmlFor="vendorId" required error={errors.vendorId}>
           <NativeSelect id="vendorId" name="vendorId" defaultValue={defaults?.vendorId ?? ""} required>
@@ -347,6 +359,7 @@ export function EditPoDialog({
             wbsByProject={wbsByProject}
             defaults={defaults}
             currency={currency}
+            isEdit
           />
         </>
       )}

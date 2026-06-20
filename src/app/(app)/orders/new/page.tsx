@@ -1,11 +1,8 @@
-import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
-import { ArrowLeft } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
 import { num } from "@/lib/money";
 import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
 import { NewPoForm } from "../dialogs";
 
 export default async function NewPoPage({
@@ -118,17 +115,14 @@ export default async function NewPoPage({
   return (
     <div>
       <PageHeader
+        backHref="/orders"
+        backLabel="All orders"
         eyebrow="Purchase order"
         title="New purchase order"
         description={
           req
             ? `Ordering ${req.itemName} against the linked requirement — coverage updates when the order is released.`
             : "Raise a purchase order or subcontract directly."
-        }
-        actions={
-          <Button size="sm" variant="outline" render={<Link href="/orders" />}>
-            <ArrowLeft className="size-4" /> Back to orders
-          </Button>
         }
       />
 

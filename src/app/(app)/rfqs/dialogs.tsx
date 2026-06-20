@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardEdit, Pencil, UserPlus } from "lucide-react";
+import { ClipboardEdit, Pencil, UserPlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,20 +9,121 @@ import { FormDialog } from "@/components/app/form-dialog";
 import { Field, DateField, NativeSelect } from "@/components/app/field";
 import { Eyebrow } from "@/components/app/eyebrow";
 import { num, formatMoney, formatNumber } from "@/lib/money";
+import { UNITS } from "@/lib/constants";
 import { enterQuote, updateRfq, inviteVendorToRfq } from "./actions";
 
 type QuoteLine = { id: string; itemName: string; unit: string; quantity: string };
 type VendorOption = { id: string; name: string; category: string | null };
 
+type EditLineRow = { key: number; itemName: string; quantity: string; unit: string };
+let editRowSeq = 1;
+
+/** Draft-only line editor for an RFQ — lines lock once quotes can arrive. */
+function RfqLineEditor({ initial, error }: { initial: QuoteLine[]; error?: string }) {
+  const [rows, setRows] = useState<EditLineRow[]>(() =>
+    initial.length
+      ? initial.map((l) => ({
+          key: editRowSeq++,
+          itemName: l.itemName,
+          quantity: String(num(l.quantity)),
+          unit: l.unit,
+        }))
+      : [{ key: editRowSeq++, itemName: "", quantity: "", unit: "pcs" }],
+  );
+  const update = (key: number, patch: Partial<EditLineRow>) =>
+    setRows((r) => r.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  const remove = (key: number) =>
+    setRows((r) => (r.length > 1 ? r.filter((x) => x.key !== key) : r));
+  return (
+    <div className="space-y-2">
+      <Eyebrow className="block text-muted-foreground">Line items</Eyebrow>
+      {rows.map((row) => (
+        <div key={row.key} className="grid grid-cols-12 items-center gap-2">
+          <Input
+            aria-label="Item"
+            className="col-span-12 sm:col-span-6"
+            name="lineItem"
+            placeholder="Reinforcement steel Y16"
+            value={row.itemName}
+            onChange={(e) => update(row.key, { itemName: e.target.value })}
+          />
+          <Input
+            aria-label="Quantity"
+            className="col-span-5 sm:col-span-3"
+            name="lineQty"
+            type="number"
+            step="0.001"
+            min="0"
+            placeholder="0"
+            value={row.quantity}
+            onChange={(e) => update(row.key, { quantity: e.target.value })}
+          />
+          <NativeSelect
+            aria-label="Unit"
+            className="col-span-5 sm:col-span-2"
+            name="lineUnit"
+            value={row.unit}
+            onChange={(e) => update(row.key, { unit: e.target.value })}
+          >
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </NativeSelect>
+          <div className="col-span-2 flex justify-end sm:col-span-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              nativeButton
+              disabled={rows.length === 1}
+              onClick={() => remove(row.key)}
+              aria-label="Remove line"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      {error && <p className="text-xs text-critical">{error}</p>}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        nativeButton
+        onClick={() =>
+          setRows((r) => [...r, { key: editRowSeq++, itemName: "", quantity: "", unit: "pcs" }])
+        }
+      >
+        <Plus className="size-4" /> Add item
+      </Button>
+    </div>
+  );
+}
+
 export function EditRfqDialog({
   rfq,
+  lines,
 }: {
-  rfq: { id: string; title: string; dueDate: string | null; notes: string | null };
+  rfq: {
+    id: string;
+    title: string;
+    dueDate: string | null;
+    notes: string | null;
+    status: string;
+  };
+  lines: QuoteLine[];
 }) {
+  const canEditLines = rfq.status === "draft";
   return (
     <FormDialog
       title="Edit RFQ"
-      description="Update the title, due date or notes shown to vendors."
+      description={
+        canEditLines
+          ? "Update the details and line items for this draft."
+          : "Update the title, due date or notes shown to vendors."
+      }
       action={updateRfq}
       submitLabel="Save"
       trigger={
@@ -43,6 +144,7 @@ export function EditRfqDialog({
           <Field label="Notes for vendors" htmlFor="notes">
             <Textarea id="notes" name="notes" rows={2} defaultValue={rfq.notes ?? ""} placeholder="Delivery conditions, specs, terms…" />
           </Field>
+          {canEditLines && <RfqLineEditor initial={lines} error={errors.lines} />}
         </>
       )}
     </FormDialog>

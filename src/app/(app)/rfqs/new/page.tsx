@@ -1,11 +1,8 @@
-import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
-import { ArrowLeft } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
 import { num } from "@/lib/money";
 import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
 import { NewRfqForm } from "../new-form";
 
 export default async function NewRfqPage({
@@ -80,17 +77,14 @@ export default async function NewRfqPage({
   return (
     <div>
       <PageHeader
+        backHref="/rfqs"
+        backLabel="All RFQs"
         eyebrow="Request for quote"
         title="New RFQ"
         description={
           data.requirement
             ? `Sourcing ${data.requirement.itemName} for the linked requirement.`
             : "Request quotes from invited vendors and compare them side by side."
-        }
-        actions={
-          <Button size="sm" variant="outline" render={<Link href="/rfqs" />}>
-            <ArrowLeft className="size-4" /> Back to RFQs
-          </Button>
         }
       />
 

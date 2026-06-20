@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { ArrowLeft, Building2, Warehouse, FileText } from "lucide-react";
+import { Building2, Warehouse, FileText } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
@@ -13,7 +13,6 @@ import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/app/status-badge";
 import { ActionButton } from "@/components/app/action-button";
-import { Button } from "@/components/ui/button";
 import { reverseGoodsReceipt } from "@/app/(app)/inventory/actions";
 
 const GRN_TONE: Record<string, BadgeTone> = {
@@ -84,6 +83,8 @@ export default async function GrnDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/receipts"
+        backLabel="All receipts"
         eyebrow="Goods receipt"
         title={grn.number}
         description={
@@ -108,9 +109,6 @@ export default async function GrnDetailPage({
         }
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" render={<Link href="/receipts" />}>
-              <ArrowLeft className="size-4" /> Back
-            </Button>
             <StatusBadge tone={GRN_TONE[grn.status] ?? "neutral"}>{grn.status}</StatusBadge>
             {canReverse && grn.status === "posted" && (
               <ActionButton

@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import type { Tx } from "@/db/client";
 import type { AuthContext } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
-import { money, num } from "@/lib/money";
+import { formatMoney, money, num } from "@/lib/money";
 import * as t from "@/db/schema";
 
 /**
@@ -176,7 +176,7 @@ export async function applyChangeOrder(
     action: "changeorder.apply",
     entityType: "change_order",
     entityId: co.id,
-    summary: `Applied ${co.number} (budget +${co.costImpact})`,
+    summary: `Applied ${co.number} (budget +${formatMoney(num(co.costImpact), ctx.currencyCode)})`,
     risk: "warning",
     projectId: co.projectId,
   });

@@ -8,7 +8,7 @@ import type { Tx } from "@/db/client";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import { nextNumber } from "@/lib/numbering";
-import { WBS_TEMPLATES } from "@/lib/constants";
+import { WBS_TEMPLATES, PROJECT_STATUSES } from "@/lib/constants";
 import * as t from "@/db/schema";
 import {
   parseForm,
@@ -19,7 +19,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { money, num } from "@/lib/money";
+import { formatMoney, money, num } from "@/lib/money";
 
 const pct = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
 
@@ -115,13 +115,6 @@ export async function createProject(
   });
 }
 
-const PROJECT_STATUSES = [
-  "planning",
-  "active",
-  "on_hold",
-  "completed",
-  "archived",
-] as const;
 
 export async function updateProject(
   _prev: ActionState,
@@ -492,6 +485,41 @@ export async function reachMilestone(
   });
 }
 
+export async function revertMilestone(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const milestoneId = String(formData.get("milestoneId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const [existing] = await tx
+      .select({ status: t.milestones.status, invoiceId: t.milestones.invoiceId })
+      .from(t.milestones)
+      .where(eq(t.milestones.id, milestoneId))
+      .limit(1);
+    if (!existing) return fail("Milestone not found");
+    if (existing.status !== "reached")
+      return fail("Only a reached milestone can be moved back to pending");
+    // A milestone reserved/billed by an invoice can't be un-reached underneath it.
+    if (existing.invoiceId)
+      return fail("This milestone is reserved by an invoice — void that invoice first");
+    await tx
+      .update(t.milestones)
+      .set({ status: "pending", reachedAt: null })
+      .where(eq(t.milestones.id, milestoneId));
+    await audit(tx, ctx, {
+      action: "milestone.revert",
+      entityType: "milestone",
+      entityId: milestoneId,
+      summary: "Reverted milestone to pending",
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return ok("Milestone moved back to pending");
+  });
+}
+
 const milestoneUpdateSchema = milestoneSchema.extend({ milestoneId: z.string().uuid() });
 
 export async function updateMilestone(
@@ -610,6 +638,118 @@ export async function createChangeOrder(
   });
 }
 
+const changeOrderUpdateSchema = changeOrderSchema.extend({
+  changeOrderId: z.string().uuid(),
+});
+
+export async function updateChangeOrder(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseForm(changeOrderUpdateSchema, formData);
+  if (!parsed.success) return fail("Please fix the highlighted fields", parsed.fieldErrors);
+  const d = parsed.data;
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "changeorders.manage")) return fail("You don't have permission");
+    const [current] = await tx
+      .select({ status: t.changeOrders.status, number: t.changeOrders.number })
+      .from(t.changeOrders)
+      .where(eq(t.changeOrders.id, d.changeOrderId))
+      .limit(1)
+      .for("update");
+    if (!current) return fail("Change order not found");
+    if (current.status !== "draft")
+      return fail("Only draft change orders can be edited");
+    await tx
+      .update(t.changeOrders)
+      .set({
+        title: d.title,
+        description: d.description ?? null,
+        costImpact: money(d.costImpact),
+        revenueImpact: money(d.revenueImpact),
+        scheduleImpactDays: d.scheduleImpactDays,
+        reason: d.reason ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(t.changeOrders.id, d.changeOrderId));
+    await audit(tx, ctx, {
+      action: "changeorder.update",
+      entityType: "change_order",
+      entityId: d.changeOrderId,
+      summary: `Updated ${current.number}: ${d.title}`,
+      projectId: d.projectId,
+    });
+    revalidatePath(`/projects/${d.projectId}`);
+    return ok("Change order updated");
+  });
+}
+
+export async function deleteChangeOrder(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const changeOrderId = String(formData.get("changeOrderId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "changeorders.manage")) return fail("You don't have permission");
+    const [co] = await tx
+      .select({ status: t.changeOrders.status, number: t.changeOrders.number })
+      .from(t.changeOrders)
+      .where(eq(t.changeOrders.id, changeOrderId))
+      .limit(1)
+      .for("update");
+    if (!co) return fail("Change order not found");
+    // Only states with no ledger effect can be removed; an applied CO has already
+    // adjusted budget + contract value and must stay on the record.
+    if (co.status !== "draft" && co.status !== "rejected")
+      return fail("Only draft or rejected change orders can be deleted");
+    await tx.delete(t.changeOrders).where(eq(t.changeOrders.id, changeOrderId));
+    await audit(tx, ctx, {
+      action: "changeorder.delete",
+      entityType: "change_order",
+      entityId: changeOrderId,
+      summary: `Deleted ${co.number}`,
+      risk: "warning",
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return ok("Change order deleted");
+  });
+}
+
+export async function reopenChangeOrder(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const changeOrderId = String(formData.get("changeOrderId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "changeorders.manage")) return fail("You don't have permission");
+    const [co] = await tx
+      .select({ status: t.changeOrders.status, number: t.changeOrders.number })
+      .from(t.changeOrders)
+      .where(eq(t.changeOrders.id, changeOrderId))
+      .limit(1)
+      .for("update");
+    if (!co) return fail("Change order not found");
+    if (co.status !== "rejected")
+      return fail("Only a rejected change order can be reopened");
+    await tx
+      .update(t.changeOrders)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(eq(t.changeOrders.id, changeOrderId));
+    await audit(tx, ctx, {
+      action: "changeorder.reopen",
+      entityType: "change_order",
+      entityId: changeOrderId,
+      summary: `Reopened ${co.number} to draft`,
+      projectId,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return ok("Change order reopened — edit and resubmit");
+  });
+}
+
 export async function submitChangeOrder(
   _prev: ActionState,
   formData: FormData,
@@ -641,7 +781,7 @@ export async function submitChangeOrder(
       type: "change_order",
       entityType: "change_order",
       entityId: co.id,
-      title: `${co.number} — ${co.title} · revenue ${money(num(co.revenueImpact))}`,
+      title: `${co.number} — ${co.title} · revenue ${formatMoney(num(co.revenueImpact), ctx.currencyCode)}`,
       amount: co.costImpact,
       projectId,
       requestedBy: ctx.userId,

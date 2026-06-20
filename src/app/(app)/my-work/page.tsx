@@ -19,6 +19,7 @@ function midnight(d: Date): Date {
 export default async function MyWorkPage() {
   const user = await requireUser();
   const canSchedule = can(user.role, "schedule.manage");
+  const canViewProject = can(user.role, "projects.view");
 
   const rows = await db(async (tx) =>
     tx
@@ -108,7 +109,12 @@ export default async function MyWorkPage() {
               <SectionCard key={s.key} title={s.title} description={s.description} noPadding>
                 <div className="divide-y">
                   {s.items.map((task) => (
-                    <MyTaskRow key={task.id} task={task} canSchedule={canSchedule} />
+                    <MyTaskRow
+                      key={task.id}
+                      task={task}
+                      canSchedule={canSchedule}
+                      canViewProject={canViewProject}
+                    />
                   ))}
                 </div>
               </SectionCard>

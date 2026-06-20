@@ -39,12 +39,28 @@ export async function GET(
   const bytes = Buffer.from(att.data, "base64");
   const safeName = att.fileName.replace(/["\\\r\n]/g, "_");
 
+  // Stored-XSS defense: the mime type is attacker-controlled (taken from the
+  // client at upload), so only let a small allow-list of inert types render
+  // inline in our own origin. Everything else (notably text/html and SVG, which
+  // can carry script) is served as a neutral octet-stream and forced to download.
+  // `nosniff` stops the browser from re-interpreting the bytes as HTML anyway.
+  const INLINE_SAFE = new Set([
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+  ]);
+  const rawMime = att.mimeType ?? "application/octet-stream";
+  const safeToInline = INLINE_SAFE.has(rawMime);
+
   return new Response(bytes, {
     headers: {
-      "Content-Type": att.mimeType ?? "application/octet-stream",
-      "Content-Disposition": `inline; filename="${safeName}"`,
+      "Content-Type": safeToInline ? rawMime : "application/octet-stream",
+      "Content-Disposition": `${safeToInline ? "inline" : "attachment"}; filename="${safeName}"`,
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

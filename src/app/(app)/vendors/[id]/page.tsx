@@ -105,6 +105,8 @@ export default async function VendorDetailPage({
   return (
     <div>
       <PageHeader
+        backHref="/vendors"
+        backLabel="All vendors"
         eyebrow="Vendor"
         title={
           <span className="flex items-center gap-2">

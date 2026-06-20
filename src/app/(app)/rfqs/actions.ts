@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
@@ -16,7 +16,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { money, quantity, num } from "@/lib/money";
+import { formatMoney, money, quantity, num } from "@/lib/money";
 import { todayISO } from "@/lib/dates";
 
 /* ─────────────────────────────── create RFQ ─────────────────────────────── */
@@ -188,10 +188,20 @@ export async function enterQuote(
     if (!quote) return fail("Quote not found");
 
     const [rfq] = await tx
-      .select({ id: t.rfqs.id, number: t.rfqs.number, projectId: t.rfqs.projectId })
+      .select({
+        id: t.rfqs.id,
+        number: t.rfqs.number,
+        projectId: t.rfqs.projectId,
+        status: t.rfqs.status,
+      })
       .from(t.rfqs)
       .where(eq(t.rfqs.id, quote.rfqId))
       .limit(1);
+    if (!rfq) return fail("RFQ not found");
+    // Server-side guard (the UI hides the dialog, but a stale tab/replayed form
+    // must not record a quote against an already-closed RFQ).
+    if (rfq.status === "awarded" || rfq.status === "cancelled")
+      return fail("This RFQ is closed to new quotes");
 
     const rfqLines = await tx
       .select({ id: t.rfqLines.id, quantity: t.rfqLines.quantity })
@@ -250,17 +260,21 @@ export async function enterQuote(
       })
       .where(eq(t.vendorQuotes.id, d.quoteId));
 
-    // Once quotes start arriving, move the RFQ into comparing if still issued.
-    await tx
-      .update(t.rfqs)
-      .set({ status: "comparing", updatedAt: new Date() })
-      .where(and(eq(t.rfqs.id, quote.rfqId), eq(t.rfqs.status, "issued")));
+    // Once quotes start arriving, move the RFQ into "comparing". This also
+    // rescues a draft RFQ that received a quote before being formally issued —
+    // otherwise it would read "draft" with live quotes and stay off the
+    // dashboard's in-progress count.
+    if (rfq.status !== "comparing")
+      await tx
+        .update(t.rfqs)
+        .set({ status: "comparing", updatedAt: new Date() })
+        .where(eq(t.rfqs.id, quote.rfqId));
 
     await audit(tx, ctx, {
       action: "quote.enter",
       entityType: "vendor_quote",
       entityId: d.quoteId,
-      summary: `Recorded quote ${money(total)} on ${rfq?.number ?? "RFQ"}`,
+      summary: `Recorded quote ${formatMoney(total, ctx.currencyCode)} on ${rfq?.number ?? "RFQ"}`,
       risk: "neutral",
       projectId: rfq?.projectId ?? null,
     });
@@ -489,6 +503,43 @@ export async function updateRfq(
       .update(t.rfqs)
       .set({ title: d.title, dueDate: d.dueDate ?? null, notes: d.notes ?? null, updatedAt: new Date() })
       .where(eq(t.rfqs.id, d.rfqId));
+
+    // While still a draft (no quotes exist yet), the line items can be corrected.
+    // Once issued/comparing the lines are locked so submitted quotes stay aligned.
+    if (rfq.status === "draft" && formData.has("lineItem")) {
+      const items = formData.getAll("lineItem").map(String);
+      const qtys = formData.getAll("lineQty").map(String);
+      const units = formData.getAll("lineUnit").map(String);
+      const newLines: { itemName: string; unit: string; quantity: number }[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const itemName = (items[i] ?? "").trim();
+        const qty = num(qtys[i]);
+        if (!itemName || qty <= 0) continue;
+        newLines.push({ itemName, unit: (units[i] ?? "pcs").trim() || "pcs", quantity: qty });
+      }
+      if (newLines.length === 0)
+        return fail("Add at least one line item with a quantity", {
+          lines: "List at least one item to quote",
+        });
+      // Preserve the linked requirement (carried on the first line) across the replace.
+      const [linked] = await tx
+        .select({ requirementId: t.rfqLines.requirementId })
+        .from(t.rfqLines)
+        .where(and(eq(t.rfqLines.rfqId, d.rfqId), isNotNull(t.rfqLines.requirementId)))
+        .limit(1);
+      await tx.delete(t.rfqLines).where(eq(t.rfqLines.rfqId, d.rfqId));
+      await tx.insert(t.rfqLines).values(
+        newLines.map((l, i) => ({
+          companyId: ctx.companyId,
+          rfqId: d.rfqId,
+          requirementId: i === 0 ? (linked?.requirementId ?? null) : null,
+          itemName: l.itemName,
+          unit: l.unit,
+          quantity: quantity(l.quantity),
+          sortOrder: i,
+        })),
+      );
+    }
     await audit(tx, ctx, {
       action: "rfq.update",
       entityType: "rfq",
@@ -623,5 +674,49 @@ export async function inviteVendorToRfq(
     });
     revalidatePath(`/rfqs/${d.rfqId}`);
     return ok("Vendor invited");
+  });
+}
+
+export async function removeVendorFromRfq(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const quoteId = String(formData.get("quoteId") ?? "");
+  const rfqId = String(formData.get("rfqId") ?? "");
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "procurement.manage")) return fail("You don't have permission");
+    const [rfq] = await tx
+      .select({ status: t.rfqs.status, number: t.rfqs.number, projectId: t.rfqs.projectId })
+      .from(t.rfqs)
+      .where(eq(t.rfqs.id, rfqId))
+      .limit(1);
+    if (!rfq) return fail("RFQ not found");
+    if (rfq.status === "awarded" || rfq.status === "cancelled")
+      return fail("Can't change vendors on an awarded or cancelled RFQ");
+    const [quote] = await tx
+      .select({ id: t.vendorQuotes.id, vendorId: t.vendorQuotes.vendorId, status: t.vendorQuotes.status })
+      .from(t.vendorQuotes)
+      .where(and(eq(t.vendorQuotes.id, quoteId), eq(t.vendorQuotes.rfqId, rfqId)))
+      .limit(1)
+      .for("update");
+    if (!quote) return fail("Vendor not found on this RFQ");
+    // Only an un-responded (still pending) invite can be withdrawn — a submitted
+    // quote is part of the sourcing record and must stay for the comparison.
+    if (quote.status !== "pending")
+      return fail("This vendor has already submitted a quote — it can't be removed");
+    await tx.delete(t.vendorQuoteLines).where(eq(t.vendorQuoteLines.quoteId, quoteId));
+    await tx.delete(t.vendorQuotes).where(eq(t.vendorQuotes.id, quoteId));
+    await tx
+      .delete(t.rfqVendors)
+      .where(and(eq(t.rfqVendors.rfqId, rfqId), eq(t.rfqVendors.vendorId, quote.vendorId)));
+    await audit(tx, ctx, {
+      action: "rfq.uninvite",
+      entityType: "rfq",
+      entityId: rfqId,
+      summary: `Removed a vendor from ${rfq.number}`,
+      projectId: rfq.projectId,
+    });
+    revalidatePath(`/rfqs/${rfqId}`);
+    return ok("Vendor removed");
   });
 }

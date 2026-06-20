@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
-import { num, formatMoney } from "@/lib/money";
+import { num, formatMoneyExact } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { titleCase } from "@/lib/constants";
 import { DocumentSheet } from "@/components/app/document-sheet";
@@ -81,7 +81,12 @@ export default async function InvoicePrintPage({
       parties={[
         {
           label: "Bill to",
-          lines: [inv.clientName ?? inv.projectName, inv.projectName, inv.projectCode],
+          // Don't repeat the project name when there's no distinct client name.
+          lines: [
+            inv.clientName ?? inv.projectName,
+            ...(inv.clientName ? [inv.projectName] : []),
+            inv.projectCode,
+          ],
         },
       ]}
       footer={
@@ -104,7 +109,7 @@ export default async function InvoicePrintPage({
             <tr className="border-b">
               <td className="py-2 pr-2 text-foreground">{inv.title}</td>
               <td className="py-2 pl-2 text-right tabular">
-                {formatMoney(inv.subtotal, currency)}
+                {formatMoneyExact(inv.subtotal, currency)}
               </td>
             </tr>
           ) : (
@@ -119,7 +124,7 @@ export default async function InvoicePrintPage({
                   )}
                 </td>
                 <td className="py-2 pl-2 text-right tabular">
-                  {formatMoney(l.amount, currency)}
+                  {formatMoneyExact(l.amount, currency)}
                 </td>
               </tr>
             ))
@@ -131,25 +136,25 @@ export default async function InvoicePrintPage({
         <dl className="w-64 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular">{formatMoney(inv.subtotal, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(inv.subtotal, currency)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">VAT</dt>
-            <dd className="tabular">{formatMoney(inv.taxAmount, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(inv.taxAmount, currency)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
             <dt>Total</dt>
-            <dd className="tabular">{formatMoney(inv.totalAmount, currency)}</dd>
+            <dd className="tabular">{formatMoneyExact(inv.totalAmount, currency)}</dd>
           </div>
           {num(inv.amountPaid) > 0 && (
             <>
               <div className="flex justify-between text-muted-foreground">
                 <dt>Paid</dt>
-                <dd className="tabular">−{formatMoney(inv.amountPaid, currency)}</dd>
+                <dd className="tabular">−{formatMoneyExact(inv.amountPaid, currency)}</dd>
               </div>
               <div className="flex justify-between border-t pt-1.5 font-semibold">
                 <dt>Balance due</dt>
-                <dd className="tabular">{formatMoney(balance, currency)}</dd>
+                <dd className="tabular">{formatMoneyExact(balance, currency)}</dd>
               </div>
             </>
           )}

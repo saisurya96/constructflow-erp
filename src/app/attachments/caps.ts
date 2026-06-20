@@ -2,8 +2,8 @@ import type { Capability } from "@/lib/rbac";
 
 /** Capability required to DOWNLOAD an attachment, by the entity it belongs to. */
 export const ATTACHMENT_READ_CAP: Record<string, Capability> = {
-  purchase_order: "procurement.manage",
-  subcontract: "procurement.manage",
+  purchase_order: "procurement.view",
+  subcontract: "procurement.view",
   invoice: "billing.manage",
   project: "projects.view",
   change_order: "projects.view",

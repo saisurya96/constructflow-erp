@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { ScrollText, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
+import { can, type Capability } from "@/lib/rbac";
 import * as t from "@/db/schema";
 import type { Severity } from "@/db/schema";
 import { formatDateTime } from "@/lib/dates";
@@ -27,6 +28,18 @@ const ENTITY_ROUTE: Record<string, (id: string) => string> = {
   goods_receipt: (id) => `/receipts/${id}`,
 };
 
+/** Capability the target page requires — so we don't link an auditor (e.g.
+ *  finance) to a record that would just bounce them to /forbidden. */
+const ENTITY_CAP: Record<string, Capability> = {
+  purchase_order: "procurement.view",
+  subcontract: "procurement.view",
+  invoice: "billing.manage",
+  project: "projects.view",
+  rfq: "procurement.manage",
+  vendor: "vendors.manage",
+  goods_receipt: "inventory.manage",
+};
+
 const RISK_VALUES: Severity[] = ["critical", "warning", "good", "neutral"];
 
 const RISK_FILTERS: { value: string; label: string }[] = [
@@ -46,7 +59,7 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<{ risk?: string; page?: string }>;
 }) {
-  await requireCapability("audit.view");
+  const user = await requireCapability("audit.view");
   const params = await searchParams;
   const active = isRisk(params.risk) ? params.risk : "all";
   const page = Math.max(0, parseInt(params.page ?? "0", 10) || 0);
@@ -91,8 +104,12 @@ export default async function AuditPage({
     return s ? `/audit?${s}` : "/audit";
   };
   const exportHref = active === "all" ? "/audit/export" : `/audit/export?risk=${active}`;
-  const entityHref = (entityType: string | null, entityId: string | null) =>
-    entityType && entityId ? (ENTITY_ROUTE[entityType]?.(entityId) ?? null) : null;
+  const entityHref = (entityType: string | null, entityId: string | null) => {
+    if (!entityType || !entityId) return null;
+    const cap = ENTITY_CAP[entityType];
+    if (cap && !can(user.role, cap)) return null; // would dead-end at /forbidden
+    return ENTITY_ROUTE[entityType]?.(entityId) ?? null;
+  };
 
   return (
     <div>
@@ -198,7 +215,9 @@ export default async function AuditPage({
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <StatusBadge tone={SEVERITY_TONE[e.risk]}>{e.risk}</StatusBadge>
+                      <StatusBadge tone={SEVERITY_TONE[e.risk]}>
+                        {RISK_FILTERS.find((f) => f.value === e.risk)?.label ?? e.risk}
+                      </StatusBadge>
                     </td>
                     <td className="px-4 py-2.5">
                       {e.projectId && e.projectName ? (

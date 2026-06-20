@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { HardHat, ArrowUpRight } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/context";
@@ -30,14 +31,14 @@ export default async function AuthLayout({
         <div aria-hidden className="pointer-events-none absolute right-8 top-8 size-3 border-r border-t border-background/20" />
         <div aria-hidden className="pointer-events-none absolute bottom-8 left-8 size-3 border-b border-l border-background/20" />
 
-        <div className="relative flex items-center gap-2.5">
+        <Link href="/" className="relative flex w-fit items-center gap-2.5">
           <div className="flex size-8 items-center justify-center rounded-md bg-brand text-brand-foreground">
             <HardHat className="size-4.5" strokeWidth={2.25} />
           </div>
           <span className="font-display text-base font-semibold tracking-tight">
             ConstructFlow
           </span>
-        </div>
+        </Link>
 
         <div className="relative space-y-7">
           <span className="eyebrow block text-background/45">
@@ -71,8 +72,22 @@ export default async function AuthLayout({
         </p>
       </div>
 
-      <div className="flex items-center justify-center p-6">
-        <div className="w-full max-w-sm">{children}</div>
+      <div className="flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-sm">
+          {/* brand + way home for small screens, where the hero is hidden */}
+          <Link
+            href="/"
+            className="mb-8 flex w-fit items-center gap-2.5 lg:hidden"
+          >
+            <span className="flex size-8 items-center justify-center rounded-md bg-brand text-brand-foreground">
+              <HardHat className="size-4.5" strokeWidth={2.25} />
+            </span>
+            <span className="font-display text-base font-semibold tracking-tight">
+              ConstructFlow
+            </span>
+          </Link>
+          {children}
+        </div>
       </div>
     </div>
   );
