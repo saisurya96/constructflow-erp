@@ -1,0 +1,5 @@
+# HyperFrames render outputs (the shipped MP4 lives in /public)
+renders/
+.hyperframes/
+node_modules/
+*.log

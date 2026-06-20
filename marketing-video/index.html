@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Space Grotesk";
+        src: url("fonts/SpaceGrotesk-latin.woff2") format("woff2");
+        font-weight: 300 700; font-style: normal; font-display: block;
+      }
+      @font-face {
+        font-family: "Geist Mono";
+        src: url("fonts/GeistMono-latin.woff2") format("woff2");
+        font-weight: 100 900; font-style: normal; font-display: block;
+      }
+      :root {
+        --paper: #faf8f3;
+        --ink: #232220;
+        --card: #ffffff;
+        --orange: #e1701e;
+        --orange-soft: #f6e6d6;
+        --muted: #6b675f;
+        --line: #e4e0d8;
+        --line-strong: #d8d2c6;
+        --red: #c5392a;
+        --red-soft: #f7e2de;
+        --green: #3f8f5f;
+        --green-soft: #dcebe0;
+        --amber: #d9a441;
+        --amber-soft: #f6ead0;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px; overflow: hidden;
+        background: var(--paper);
+      }
+      body {
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono {
+        font-family: "Geist Mono", "JetBrains Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-weight: 500;
+      }
+      .tnum { font-variant-numeric: tabular-nums; }
+
+      /* ---------- persistent drafting-sheet chrome ---------- */
+      #root { position: relative; width: 1920px; height: 1080px; background: var(--paper); }
+      .grid-bg {
+        position: absolute; inset: 0;
+        background-image:
+          linear-gradient(to right, rgba(35,34,32,0.05) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(35,34,32,0.05) 1px, transparent 1px);
+        background-size: 48px 48px;
+        z-index: 0;
+      }
+      .frame {
+        position: absolute; inset: 40px; border: 2px solid var(--line-strong);
+        z-index: 90; pointer-events: none;
+      }
+      .reg { position: absolute; width: 26px; height: 26px; z-index: 91; }
+      .reg::before, .reg::after { content: ""; position: absolute; background: var(--muted); }
+      .reg::before { left: 0; top: 12px; width: 26px; height: 2px; }
+      .reg::after { left: 12px; top: 0; width: 2px; height: 26px; }
+      .reg.tl { left: 54px; top: 54px; } .reg.tr { right: 54px; top: 54px; }
+      .reg.bl { left: 54px; bottom: 54px; } .reg.br { right: 54px; bottom: 54px; }
+
+      .sheet-top {
+        position: absolute; left: 86px; right: 86px; top: 62px; z-index: 92;
+        display: flex; justify-content: space-between; align-items: center;
+        font-size: 19px; color: var(--muted);
+      }
+      .live { display: inline-flex; align-items: center; gap: 12px; }
+      .live-dot { width: 13px; height: 13px; background: var(--orange); border-radius: 2px; }
+
+      .titleblock {
+        position: absolute; left: 86px; right: 86px; bottom: 60px; z-index: 92;
+        display: flex; justify-content: space-between; align-items: center;
+        border-top: 2px solid var(--line-strong); padding-top: 16px;
+        font-size: 18px; color: var(--muted);
+      }
+      .titleblock .seg { display: flex; gap: 40px; }
+
+      /* ---------- scene container ---------- */
+      .scene {
+        position: absolute; inset: 40px; background: var(--paper);
+        padding: 96px 120px 132px; overflow: hidden;
+        display: flex; flex-direction: column;
+      }
+      .scene .grid-bg { z-index: 0; }
+      .scene-inner { position: relative; z-index: 2; width: 100%; height: 100%; display: flex; flex-direction: column; }
+      #s1 { z-index: 10; } #s2 { z-index: 20; } #s3 { z-index: 30; }
+      #s4 { z-index: 40; } #s5 { z-index: 50; } #s6 { z-index: 60; }
+
+      .ghost {
+        position: absolute; font-family: "Geist Mono","JetBrains Mono",monospace;
+        font-weight: 700; color: rgba(35,34,32,0.04); z-index: 1; line-height: 0.8;
+        user-select: none;
+      }
+
+      .marker { font-size: 22px; color: var(--orange); }
+      .marker .sep { color: var(--muted); margin: 0 14px; }
+      .marker .lbl { color: var(--ink); }
+
+      /* ---------- brand ---------- */
+      .brand { display: inline-flex; align-items: center; gap: 22px; }
+      .brand .mark {
+        width: 84px; height: 84px; background: var(--orange); border-radius: 14px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .brand .mark svg { width: 48px; height: 48px; }
+      .brand .name { font-size: 52px; font-weight: 600; letter-spacing: -0.02em; }
+
+      /* ---------- generic cards ---------- */
+      .card { background: var(--card); border: 2px solid var(--line); border-radius: 8px; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 10px;
+        font-family: "Geist Mono","JetBrains Mono",monospace; text-transform: uppercase;
+        letter-spacing: 0.1em; font-size: 18px; font-weight: 500;
+        padding: 8px 16px; border-radius: 6px;
+      }
+      .pill .sq { width: 12px; height: 12px; border-radius: 2px; }
+      .pill.red { background: var(--red-soft); color: var(--red); }
+      .pill.red .sq { background: var(--red); }
+      .pill.amber { background: var(--amber-soft); color: #8a6512; }
+      .pill.amber .sq { background: var(--amber); }
+      .pill.green { background: var(--green-soft); color: var(--green); }
+      .pill.green .sq { background: var(--green); }
+      .pill.ink { background: #efece5; color: var(--ink); }
+      .pill.ink .sq { background: var(--muted); }
+      .pill.orange { background: var(--orange-soft); color: #a8500f; }
+      .pill.orange .sq { background: var(--orange); }
+
+      /* ---------- S1 ---------- */
+      #s1 .scene-inner { justify-content: center; align-items: flex-start; gap: 0; }
+      #s1 .ey { font-size: 24px; color: var(--muted); }
+      #s1 .brand { margin: 38px 0 30px; }
+      #s1 h1 { font-size: 150px; font-weight: 600; letter-spacing: -0.035em; line-height: 0.96; }
+      #s1 h1 .o { color: var(--orange); }
+      #s1 .steps { display: flex; gap: 0; margin-top: 50px; align-items: stretch; }
+      #s1 .step {
+        display: flex; align-items: baseline; gap: 14px; padding: 0 34px;
+        border-left: 2px solid var(--line-strong);
+      }
+      #s1 .step:first-child { padding-left: 0; border-left: 0; }
+      #s1 .step .n { font-family: "Geist Mono","JetBrains Mono",monospace; font-size: 20px; color: var(--orange); font-weight: 600; }
+      #s1 .step .t { font-size: 30px; font-weight: 500; }
+
+      /* ---------- section heads (S2-S5) ---------- */
+      .head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 44px; }
+      .head h2 { font-size: 64px; font-weight: 600; letter-spacing: -0.025em; line-height: 1; }
+      .head .sub { font-size: 26px; color: var(--muted); margin-top: 16px; max-width: 760px; line-height: 1.3; }
+
+      /* project header bar (ink) */
+      .projbar {
+        background: var(--ink); color: var(--paper); border-radius: 10px;
+        padding: 30px 40px; display: flex; align-items: center; justify-content: space-between;
+      }
+      .projbar .pname { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; }
+      .projbar .pmeta { font-size: 20px; color: rgba(250,248,243,0.6); margin-top: 6px; }
+      .projbar .pstat { display: flex; gap: 56px; text-align: right; }
+      .projbar .pstat .k { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:16px; letter-spacing:0.12em; text-transform:uppercase; color: rgba(250,248,243,0.55); }
+      .projbar .pstat .v { font-size: 38px; font-weight: 600; margin-top: 6px; }
+      .projbar .pstat .v.o { color: var(--orange); }
+
+      /* kanban */
+      .kanban { display: grid; grid-template-columns: repeat(4,1fr); gap: 24px; margin-top: 36px; }
+      .col-h { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+      .col-h .lbl { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:18px; letter-spacing:0.1em; text-transform:uppercase; color: var(--muted); }
+      .col-h .cnt { font-size: 18px; color: var(--ink); font-weight: 600; background:#efece5; border-radius: 5px; padding: 2px 11px; }
+      .tcard { background: var(--card); border: 2px solid var(--line); border-radius: 8px; padding: 22px 24px; margin-bottom: 18px; position: relative; overflow: hidden; }
+      .tcard .accent { position:absolute; left:0; top:0; bottom:0; width: 7px; background: var(--line-strong); }
+      .tcard .accent.amber { background: var(--amber); }
+      .tcard .accent.green { background: var(--green); }
+      .tcard .ttl { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; padding-left: 6px; }
+      .tcard .row { display: flex; align-items: center; gap: 14px; margin-top: 18px; padding-left: 6px; }
+      .tcard .av { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 15px; font-weight: 600; display:flex; align-items:center; justify-content:center; }
+      .tcard .dt { font-family:"Geist Mono","JetBrains Mono",monospace; font-size: 17px; color: var(--muted); letter-spacing: 0.04em; }
+      #blocked-card { border-color: var(--red); }
+      #blocked-card .accent { background: var(--red); }
+      #blocked-card .warn { margin-top: 16px; margin-left: 6px; font-family:"Geist Mono","JetBrains Mono",monospace; font-size:16px; letter-spacing:0.08em; text-transform:uppercase; color: var(--red); display:flex; align-items:center; gap:10px; }
+      #blocked-card .warn .sq { width: 11px; height: 11px; background: var(--red); border-radius: 2px; }
+
+      /* requirement chip flying */
+      .reqchip {
+        align-self: flex-start; margin-bottom: 22px;
+        background: var(--card); border: 2px solid var(--orange); border-radius: 8px;
+        padding: 18px 26px; display: inline-flex; align-items: center; gap: 18px;
+      }
+      .reqchip .ic { width: 40px; height: 40px; border-radius: 7px; background: var(--orange-soft); color: var(--orange); display:flex; align-items:center; justify-content:center; }
+      .reqchip .tx .a { font-size: 25px; font-weight: 600; }
+      .reqchip .tx .b { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:16px; letter-spacing:0.08em; color: var(--muted); text-transform:uppercase; margin-top:4px; }
+
+      /* vendor compare table */
+      .vtable { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      .vtable th, .vtable td { text-align: left; padding: 24px 26px; border-bottom: 2px solid var(--line); }
+      .vtable th { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:17px; letter-spacing:0.1em; text-transform:uppercase; color: var(--muted); font-weight: 500; }
+      .vtable td.num, .vtable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .vtable .vn { font-size: 30px; font-weight: 600; }
+      .vtable .vs { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:16px; color: var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-top: 4px; }
+      .vtable td { font-size: 28px; }
+      .vrow-win td { background: var(--orange-soft); }
+      .vrow-win .vn { color: #a8500f; }
+      .vtable .winflag { display:inline-flex; align-items:center; gap:10px; color: var(--orange); font-weight: 600; }
+      .stamp {
+        position: absolute; right: 150px; top: 300px; z-index: 7;
+        border: 4px solid var(--orange); color: var(--orange); border-radius: 12px;
+        padding: 20px 34px; transform: rotate(-7deg);
+        font-family:"Geist Mono","JetBrains Mono",monospace; text-transform:uppercase; letter-spacing:0.1em;
+        text-align: center; background: rgba(250,248,243,0.92);
+      }
+      .stamp .a { font-size: 22px; } .stamp .b { font-size: 40px; font-weight: 700; margin-top: 6px; letter-spacing: 0.04em; }
+
+      /* S4 receive */
+      .recv-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 20px; align-items: start; }
+      .grn { background: var(--card); border: 2px solid var(--line); border-radius: 10px; padding: 44px; }
+      .grn .chk { width: 78px; height: 78px; border-radius: 50%; background: var(--green-soft); color: var(--green); display:flex; align-items:center; justify-content:center; }
+      .grn h3 { font-size: 40px; font-weight: 600; margin-top: 30px; }
+      .grn .meta { font-size: 26px; color: var(--muted); margin-top: 12px; }
+      .grn .grnno { font-family:"Geist Mono","JetBrains Mono",monospace; font-size: 18px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-top: 28px; }
+      .meter { margin-top: 34px; }
+      .meter .ml { display:flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+      .meter .ml .k { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:18px; letter-spacing:0.1em; text-transform:uppercase; color: var(--muted); }
+      .meter .ml .v { font-size: 34px; font-weight: 600; }
+      .meter .track { height: 20px; background: #efece5; border-radius: 3px; overflow: hidden; }
+      .meter .fill { height: 100%; background: var(--green); width: 0%; border-radius: 3px; }
+      .flip-card .ttl2 { font-size: 30px; font-weight: 600; padding-left: 6px; }
+
+      /* S5 costing */
+      .stats5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 0; margin-top: 14px; border: 2px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+      .stat5 { padding: 36px 34px; border-right: 2px solid var(--line); }
+      .stat5:last-child { border-right: 0; }
+      .stat5 .k { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:17px; letter-spacing:0.1em; text-transform:uppercase; color: var(--muted); display:flex; align-items:center; gap:10px; }
+      .stat5 .k .sq { width: 10px; height: 10px; border-radius: 2px; background: var(--green); }
+      .stat5 .v { font-size: 56px; font-weight: 600; margin-top: 18px; letter-spacing: -0.02em; }
+      .stat5 .v.green { color: var(--green); }
+      .stat5 .s { font-size: 19px; color: var(--muted); margin-top: 8px; }
+      .stat5 .s.green { color: var(--green); }
+      .bars { margin-top: 44px; display: flex; flex-direction: column; gap: 30px; }
+      .barrow { display: grid; grid-template-columns: 220px 1fr 200px; align-items: center; gap: 28px; }
+      .barrow .bk { font-family:"Geist Mono","JetBrains Mono",monospace; font-size:19px; letter-spacing:0.08em; text-transform:uppercase; color: var(--muted); }
+      .barrow .btrack { height: 30px; background: #efece5; border-radius: 4px; overflow: hidden; }
+      .barrow .bfill { height: 100%; width: 0%; border-radius: 4px; }
+      .barrow .bfill.ink { background: var(--ink); }
+      .barrow .bfill.orange { background: var(--orange); }
+      .barrow .bv { font-size: 28px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+      .inv {
+        margin-top: 40px; display: inline-flex; align-items: center; gap: 18px;
+        background: var(--ink); color: var(--paper); border-radius: 9px; padding: 22px 32px;
+      }
+      .inv .ic { width: 38px; height: 38px; border-radius: 7px; background: rgba(225,112,30,0.22); color: var(--orange); display:flex; align-items:center; justify-content:center; }
+      .inv .a { font-size: 27px; font-weight: 600; }
+      .inv .b { font-size: 19px; color: rgba(250,248,243,0.6); margin-top: 3px; }
+
+      /* S6 outro */
+      #s6 .scene-inner { justify-content: center; align-items: center; text-align: center; }
+      #s6 .thread-wrap { position: relative; width: 1300px; height: 150px; margin-bottom: 64px; }
+      #s6 svg.thread { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+      #s6 .node { position: absolute; top: 32px; transform: translateX(-50%); text-align: center; }
+      #s6 .node .dot { width: 26px; height: 26px; background: var(--paper); border: 4px solid var(--orange); border-radius: 50%; margin: 0 auto; }
+      #s6 .node .nn { font-family:"Geist Mono","JetBrains Mono",monospace; font-size: 17px; color: var(--orange); font-weight: 600; margin-top: 18px; }
+      #s6 .node .nt { font-size: 22px; font-weight: 500; margin-top: 4px; }
+      #s6 h1 { font-size: 96px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.02; }
+      #s6 h1 .o { color: var(--orange); }
+      #s6 .brand { margin-top: 54px; }
+      #s6 .cta { margin-top: 30px; font-family:"Geist Mono","JetBrains Mono",monospace; font-size: 22px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="30.5" data-width="1920" data-height="1080">
+      <!-- persistent paper + grid -->
+      <div class="grid-bg"></div>
+
+      <!-- ============================ SCENE 1 — TITLE ============================ -->
+      <div id="s1" class="scene clip" data-start="0" data-duration="4.7" data-track-index="0">
+        <div class="grid-bg"></div>
+        <div class="ghost" data-layout-ignore style="right:-10px; bottom:-40px; font-size:340px;">ERP</div>
+        <div class="scene-inner">
+          <div class="ey mono s1-ey">Construction ERP — for small firms</div>
+          <div class="brand s1-brand">
+            <span class="mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1z"/>
+                <path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/>
+                <path d="M4 15v-3a6 6 0 0 1 6-6"/>
+                <path d="M14 6a6 6 0 0 1 6 6v3"/>
+              </svg>
+            </span>
+            <span class="name">ConstructFlow</span>
+          </div>
+          <h1 class="s1-h1">One <span class="o">woven</span><br />workflow.</h1>
+          <div class="steps">
+            <div class="step s1-step"><span class="n">01</span><span class="t">Plan</span></div>
+            <div class="step s1-step"><span class="n">02</span><span class="t">Source</span></div>
+            <div class="step s1-step"><span class="n">03</span><span class="t">Receive</span></div>
+            <div class="step s1-step"><span class="n">04</span><span class="t">Cost</span></div>
+            <div class="step s1-step"><span class="n">05</span><span class="t">Bill</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ SCENE 2 — PLAN ============================ -->
+      <div id="s2" class="scene clip" data-start="4.2" data-duration="5.3" data-track-index="1">
+        <div class="grid-bg"></div>
+        <div class="ghost" data-layout-ignore style="right:0; top:-30px; font-size:240px;">01</div>
+        <div class="scene-inner">
+          <div class="head">
+            <div>
+              <div class="marker mono s2-mk">01<span class="sep">/</span><span class="lbl">Plan the job</span></div>
+              <h2 class="s2-h" style="margin-top:20px;">Every task, one living plan.</h2>
+            </div>
+            <div class="pill red s2-pill"><span class="sq"></span>1 task blocked</div>
+          </div>
+
+          <div class="projbar s2-proj">
+            <div>
+              <div class="pname">Marina Heights Tower</div>
+              <div class="pmeta mono">PRJ-001 · Dubai Marina · 38% complete</div>
+            </div>
+            <div class="pstat">
+              <div><div class="k">Contract</div><div class="v">£14.5M</div></div>
+              <div><div class="k">Forecast</div><div class="v o">On budget</div></div>
+            </div>
+          </div>
+
+          <div class="kanban">
+            <div class="kcol s2-col">
+              <div class="col-h"><span class="lbl">Not started</span><span class="cnt">2</span></div>
+              <div class="tcard"><span class="accent"></span><div class="ttl">MEP first fix — basement</div><div class="row"><span class="av">RK</span><span class="dt">Sep 16</span></div></div>
+            </div>
+            <div class="kcol s2-col">
+              <div class="col-h"><span class="lbl">In progress</span><span class="cnt">2</span></div>
+              <div class="tcard"><span class="accent amber"></span><div class="ttl">Raft foundation &amp; pile caps</div><div class="row"><span class="av">RK</span><span class="dt">Jun 28</span></div></div>
+            </div>
+            <div class="kcol s2-col">
+              <div class="col-h"><span class="lbl">Blocked</span><span class="cnt">1</span></div>
+              <div class="tcard" id="blocked-card">
+                <span class="accent"></span>
+                <div class="ttl">Basement RC slab pour</div>
+                <div class="warn"><span class="sq"></span>Material shortage</div>
+                <div class="row"><span class="av">RK</span><span class="dt">Jul 13</span></div>
+              </div>
+            </div>
+            <div class="kcol s2-col">
+              <div class="col-h"><span class="lbl">Done</span><span class="cnt">2</span></div>
+              <div class="tcard"><span class="accent green"></span><div class="ttl">Site mobilisation &amp; setup</div><div class="row"><span class="av">RK</span><span class="dt">Mar 10</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ SCENE 3 — RAISE & SOURCE ============================ -->
+      <div id="s3" class="scene clip" data-start="9.0" data-duration="6.0" data-track-index="2">
+        <div class="grid-bg"></div>
+        <div class="ghost" data-layout-ignore style="right:0; top:-30px; font-size:240px;">03</div>
+        <div class="scene-inner">
+          <div class="head">
+            <div>
+              <div class="marker mono s3-mk">02–03<span class="sep">/</span><span class="lbl">Raise the need, source it</span></div>
+              <h2 class="s3-h" style="margin-top:20px;">Compare every bid. Award the winner.</h2>
+            </div>
+          </div>
+
+          <div class="reqchip s3-req" id="reqchip">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            </span>
+            <div class="tx"><div class="a">Ready-mix concrete C40</div><div class="b">Requirement · 600 m³ · raised on the blocked task</div></div>
+          </div>
+
+          <div class="card s3-tbl" style="margin-top:24px; overflow:hidden;">
+            <table class="vtable">
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th class="num">Quote total</th>
+                  <th class="num">Lead</th>
+                  <th class="num">Compliance</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="vrow s3-r vrow-win" id="winrow">
+                  <td><div class="vn winflag"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Gulf Ready-Mix LLC</div><div class="vs">Concrete &amp; aggregates</div></td>
+                  <td class="num"><span class="vn" style="color:#a8500f;">£201,600</span></td>
+                  <td class="num">7 days</td>
+                  <td class="num">94%</td>
+                </tr>
+                <tr class="vrow s3-r">
+                  <td><div class="vn">Al Manara Concrete</div><div class="vs">Readymix supplier</div></td>
+                  <td class="num"><span class="vn">£208,400</span></td>
+                  <td class="num">9 days</td>
+                  <td class="num">88%</td>
+                </tr>
+                <tr class="vrow s3-r" style="border-bottom:0;">
+                  <td><div class="vn">Pioneer Readymix</div><div class="vs">Concrete &amp; aggregates</div></td>
+                  <td class="num"><span class="vn">£214,900</span></td>
+                  <td class="num">14 days</td>
+                  <td class="num">82%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="stamp s3-stamp" id="postamp">
+            <div class="a">Awarded</div>
+            <div class="b">PO-0002 released</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ SCENE 4 — RECEIVE ============================ -->
+      <div id="s4" class="scene clip" data-start="14.5" data-duration="5.5" data-track-index="3">
+        <div class="grid-bg"></div>
+        <div class="ghost" data-layout-ignore style="right:0; top:-30px; font-size:240px;">04</div>
+        <div class="scene-inner">
+          <div class="head">
+            <div>
+              <div class="marker mono s4-mk">04<span class="sep">/</span><span class="lbl">Receive at the gate</span></div>
+              <h2 class="s4-h" style="margin-top:20px;">One delivery updates everything.</h2>
+            </div>
+          </div>
+
+          <div class="recv-wrap">
+            <div class="grn s4-grn">
+              <span class="chk"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <h3>Goods received</h3>
+              <div class="meta">Ready-mix concrete C40 · 600 m³</div>
+              <div class="grnno">GRN-0007 · booked at the gate</div>
+              <div class="meter">
+                <div class="ml"><span class="k">Stock on hand</span><span class="v tnum" id="stockv">0 m³</span></div>
+                <div class="track"><div class="fill" id="stockfill"></div></div>
+              </div>
+            </div>
+
+            <div class="s4-flip flip-card">
+              <div class="marker mono" style="font-size:18px; margin-bottom:24px;"><span class="lbl" style="color:var(--muted);">The blocked task, now</span></div>
+              <div class="tcard" id="unblocked" style="border-color:var(--amber);">
+                <span class="accent amber"></span>
+                <div class="ttl2">Basement RC slab pour</div>
+                <div style="margin-top:18px; margin-left:6px; display:flex; align-items:center; gap:16px;">
+                  <span class="pill amber" id="newstatus"><span class="sq"></span>In progress</span>
+                  <span class="mono" style="font-size:17px; color:var(--green); display:inline-flex; align-items:center; gap:8px;" id="unblabel"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Unblocked</span>
+                </div>
+                <div class="row"><span class="av">RK</span><span class="dt">Resumes Jul 13</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ SCENE 5 — COST & BILL ============================ -->
+      <div id="s5" class="scene clip" data-start="19.5" data-duration="5.5" data-track-index="4">
+        <div class="grid-bg"></div>
+        <div class="ghost" data-layout-ignore style="right:0; top:-30px; font-size:240px;">05</div>
+        <div class="scene-inner">
+          <div class="head">
+            <div>
+              <div class="marker mono s5-mk">05<span class="sep">/</span><span class="lbl">Cost &amp; bill — live</span></div>
+              <h2 class="s5-h" style="margin-top:20px;">Budget vs actual, in real time.</h2>
+            </div>
+          </div>
+
+          <div class="stats5">
+            <div class="stat5 s5-stat"><div class="k">Budget</div><div class="v">£12.0M</div><div class="s">contract scope</div></div>
+            <div class="stat5 s5-stat"><div class="k">Committed</div><div class="v">£0.42M</div><div class="s">on open POs</div></div>
+            <div class="stat5 s5-stat"><div class="k">Actual</div><div class="v">£0.58M</div><div class="s">cost to date</div></div>
+            <div class="stat5 s5-stat"><div class="k"><span class="sq"></span>Forecast</div><div class="v green">£12.0M</div><div class="s green">on budget · £0 variance</div></div>
+            <div class="stat5 s5-stat"><div class="k"><span class="sq"></span>Margin</div><div class="v green">£2.5M</div><div class="s">17% of contract</div></div>
+          </div>
+
+          <div class="bars">
+            <div class="barrow s5-bar"><span class="bk">Budget</span><div class="btrack"><div class="bfill ink" id="bbudget"></div></div><span class="bv">£12.0M</span></div>
+            <div class="barrow s5-bar"><span class="bk">Forecast cost</span><div class="btrack"><div class="bfill orange" id="bactual"></div></div><span class="bv">£12.0M</span></div>
+          </div>
+
+          <div class="inv s5-inv">
+            <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <div><div class="a">Progress invoice raised</div><div class="b">£1.8M billed to date · £12.7M left to bill</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ SCENE 6 — OUTRO ============================ -->
+      <div id="s6" class="scene clip" data-start="24.5" data-duration="6.0" data-track-index="5">
+        <div class="grid-bg"></div>
+        <div class="scene-inner">
+          <div class="thread-wrap s6-thread">
+            <svg class="thread" viewBox="0 0 1300 150" preserveAspectRatio="none">
+              <path id="threadpath" d="M40 40 H1260" fill="none" stroke="#e1701e" stroke-width="4" stroke-linecap="round" />
+            </svg>
+            <div class="node" style="left:40px;"><div class="dot"></div><div class="nn mono">01</div><div class="nt">Plan</div></div>
+            <div class="node" style="left:345px;"><div class="dot"></div><div class="nn mono">02</div><div class="nt">Source</div></div>
+            <div class="node" style="left:650px;"><div class="dot"></div><div class="nn mono">03</div><div class="nt">Receive</div></div>
+            <div class="node" style="left:955px;"><div class="dot"></div><div class="nn mono">04</div><div class="nt">Cost</div></div>
+            <div class="node" style="left:1260px;"><div class="dot"></div><div class="nn mono">05</div><div class="nt">Bill</div></div>
+          </div>
+          <h1 class="s6-h">Enter it once.<br /><span class="o">It flows to everyone.</span></h1>
+          <div class="brand s6-brand">
+            <span class="mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1z"/>
+                <path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/>
+                <path d="M4 15v-3a6 6 0 0 1 6-6"/>
+                <path d="M14 6a6 6 0 0 1 6 6v3"/>
+              </svg>
+            </span>
+            <span class="name">ConstructFlow</span>
+          </div>
+          <div class="cta s6-cta">The first ERP a construction team actually wants to use</div>
+        </div>
+      </div>
+
+      <!-- persistent sheet chrome (always on top) -->
+      <div class="frame"></div>
+      <div class="reg tl"></div><div class="reg tr"></div><div class="reg bl"></div><div class="reg br"></div>
+      <div class="sheet-top mono">
+        <span>ConstructFlow</span>
+        <span class="live"><span class="live-dot" id="livedot"></span>Product tour · 00:30</span>
+      </div>
+      <div class="titleblock mono">
+        <span class="seg"><span>Sheet A-100</span><span>Scale N.T.S.</span><span>Rev A</span></span>
+        <span>The woven workflow</span>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const E = { out: "power3.out", io: "power2.inOut", expo: "expo.out", back: "back.out(1.6)" };
+
+      // counter helper (deterministic)
+      function countUp(targetSel, from, to, suffix, t, dur) {
+        const node = document.querySelector(targetSel);
+        const o = { v: from };
+        tl.to(o, { v: to, duration: dur, ease: "power1.out",
+          onUpdate: () => { node.textContent = Math.round(o.v).toLocaleString("en-GB") + suffix; } }, t);
+      }
+
+      /* ---------- ambient: persistent live dot ---------- */
+      tl.to("#livedot", { opacity: 0.25, duration: 0.8, ease: "sine.inOut", repeat: 37, yoyo: true }, 0);
+
+      /* ================= S1 — TITLE (0 → 4.7) ================= */
+      tl.from("#s1", { opacity: 0, duration: 0.5, ease: "sine.out" }, 0);
+      tl.from(".s1-ey", { y: 24, opacity: 0, duration: 0.5, ease: E.out }, 0.2);
+      tl.from(".s1-brand .mark", { scale: 0.5, opacity: 0, duration: 0.5, ease: E.back }, 0.35);
+      tl.from(".s1-brand .name", { x: -20, opacity: 0, duration: 0.5, ease: E.out }, 0.5);
+      tl.from(".s1-h1", { y: 50, opacity: 0, duration: 0.7, ease: E.expo }, 0.7);
+      tl.from(".s1-step", { y: 26, opacity: 0, duration: 0.5, ease: E.out, stagger: 0.08 }, 1.15);
+      tl.from("#s1 .ghost", { x: 80, opacity: 0, duration: 1.0, ease: E.out }, 0.4);
+      tl.to("#s1 .ghost", { x: -24, duration: 3.2, ease: "sine.inOut" }, 1.45);
+
+      /* ================= S2 — PLAN (4.2 → 9.5) ================= */
+      tl.from("#s2", { opacity: 0, duration: 0.45, ease: "sine.out" }, 4.2);
+      tl.from(".s2-mk", { x: -24, opacity: 0, duration: 0.5, ease: E.out }, 4.4);
+      tl.from(".s2-h", { y: 28, opacity: 0, duration: 0.55, ease: E.expo }, 4.55);
+      tl.from(".s2-pill", { scale: 0.8, opacity: 0, duration: 0.45, ease: E.back }, 4.8);
+      tl.from(".s2-proj", { y: 34, opacity: 0, duration: 0.6, ease: E.out }, 4.85);
+      tl.from(".s2-col", { y: 40, opacity: 0, duration: 0.55, ease: E.out, stagger: 0.1 }, 5.2);
+      // blocked card draws attention
+      tl.fromTo("#blocked-card", { borderColor: "#e4e0d8" }, { borderColor: "#c5392a", duration: 0.4, ease: "power1.out" }, 6.1);
+      tl.fromTo("#blocked-card", { scale: 1 }, { scale: 1.035, duration: 0.5, ease: "sine.inOut", repeat: 3, yoyo: true }, 6.2);
+      tl.from("#s2 .ghost", { opacity: 0, duration: 0.8 }, 4.6);
+
+      /* ================= S3 — RAISE & SOURCE (9.0 → 15.0) ================= */
+      tl.from("#s3", { opacity: 0, duration: 0.45, ease: "sine.out" }, 9.0);
+      tl.from(".s3-mk", { x: -24, opacity: 0, duration: 0.5, ease: E.out }, 9.2);
+      tl.from(".s3-h", { y: 28, opacity: 0, duration: 0.55, ease: E.expo }, 9.35);
+      // requirement chip slides in (raised on the blocked task), then settles
+      tl.from(".s3-req", { x: -70, opacity: 0, duration: 0.55, ease: E.out }, 9.6);
+      // table reveals
+      tl.from(".s3-tbl", { y: 40, opacity: 0, duration: 0.55, ease: E.out }, 10.1);
+      tl.from(".s3-r", { x: -30, opacity: 0, duration: 0.45, ease: E.out, stagger: 0.12 }, 10.35);
+      // winner highlight sweeps in
+      tl.fromTo("#winrow td", { backgroundColor: "rgba(246,230,214,0)" }, { backgroundColor: "rgba(246,230,214,1)", duration: 0.5, ease: "power1.out" }, 11.6);
+      // PO stamp slams in
+      tl.from("#postamp", { scale: 1.6, opacity: 0, rotate: -22, duration: 0.5, ease: E.back }, 12.4);
+      tl.fromTo("#postamp", { scale: 1 }, { scale: 1.05, duration: 0.4, ease: "sine.inOut", repeat: 2, yoyo: true }, 12.95);
+      tl.from("#s3 .ghost", { opacity: 0, duration: 0.8 }, 9.4);
+
+      /* ================= S4 — RECEIVE (14.5 → 20.0) ================= */
+      tl.from("#s4", { opacity: 0, duration: 0.45, ease: "sine.out" }, 14.5);
+      tl.from(".s4-mk", { x: -24, opacity: 0, duration: 0.5, ease: E.out }, 14.7);
+      tl.from(".s4-h", { y: 28, opacity: 0, duration: 0.55, ease: E.expo }, 14.85);
+      tl.from(".s4-grn", { x: -40, opacity: 0, duration: 0.6, ease: E.out }, 15.1);
+      tl.from(".s4-grn .chk", { scale: 0.4, opacity: 0, duration: 0.5, ease: E.back }, 15.4);
+      // stock meter fills + counts up to 600
+      tl.to("#stockfill", { width: "100%", duration: 1.1, ease: "power2.out" }, 15.7);
+      countUp("#stockv", 0, 600, " m³", 15.7, 1.1);
+      // the flip: blocked -> in progress
+      tl.from(".s4-flip", { x: 40, opacity: 0, duration: 0.6, ease: E.out }, 15.5);
+      tl.fromTo("#unblocked", { borderColor: "#c5392a" }, { borderColor: "#d9a441", duration: 0.5, ease: "power1.out" }, 16.9);
+      tl.from("#newstatus", { scale: 0.7, opacity: 0, duration: 0.5, ease: E.back }, 17.0);
+      tl.from("#unblabel", { x: -16, opacity: 0, duration: 0.5, ease: E.out }, 17.35);
+      tl.fromTo("#unblocked", { scale: 1 }, { scale: 1.03, duration: 0.45, ease: "sine.inOut", repeat: 1, yoyo: true }, 17.1);
+      tl.from("#s4 .ghost", { opacity: 0, duration: 0.8 }, 14.9);
+
+      /* ================= S5 — COST & BILL (19.5 → 25.0) ================= */
+      tl.from("#s5", { opacity: 0, duration: 0.45, ease: "sine.out" }, 19.5);
+      tl.from(".s5-mk", { x: -24, opacity: 0, duration: 0.5, ease: E.out }, 19.7);
+      tl.from(".s5-h", { y: 28, opacity: 0, duration: 0.55, ease: E.expo }, 19.85);
+      tl.from(".s5-stat", { y: 34, opacity: 0, duration: 0.5, ease: E.out, stagger: 0.08 }, 20.1);
+      tl.from(".s5-bar", { opacity: 0, duration: 0.4, ease: E.out, stagger: 0.12 }, 20.7);
+      tl.to("#bbudget", { width: "100%", duration: 1.0, ease: "power2.out" }, 20.9);
+      tl.to("#bactual", { width: "100%", duration: 1.2, ease: "power2.out" }, 21.05);
+      tl.from(".s5-inv", { y: 28, opacity: 0, duration: 0.55, ease: E.back }, 22.2);
+      tl.from("#s5 .ghost", { opacity: 0, duration: 0.8 }, 19.9);
+
+      /* ================= S6 — OUTRO (24.5 → 30.5) ================= */
+      tl.from("#s6", { opacity: 0, duration: 0.5, ease: "sine.out" }, 24.5);
+      // thread draws across
+      const path = document.getElementById("threadpath");
+      const len = path.getTotalLength();
+      path.style.strokeDasharray = len; path.style.strokeDashoffset = len;
+      tl.to("#threadpath", { strokeDashoffset: 0, duration: 1.0, ease: "power2.inOut" }, 24.8);
+      tl.from("#s6 .node", { scale: 0, opacity: 0, duration: 0.45, ease: E.back, stagger: 0.12 }, 25.0);
+      tl.from(".s6-h", { y: 40, opacity: 0, duration: 0.7, ease: E.expo }, 25.9);
+      tl.from(".s6-brand .mark", { scale: 0.5, opacity: 0, duration: 0.5, ease: E.back }, 26.6);
+      tl.from(".s6-brand .name", { x: -20, opacity: 0, duration: 0.5, ease: E.out }, 26.8);
+      tl.from(".s6-cta", { y: 18, opacity: 0, duration: 0.5, ease: E.out }, 27.1);
+      // final fade-out (allowed on last scene)
+      tl.to("#s6 .scene-inner", { opacity: 0, duration: 0.6, ease: "sine.in" }, 29.9);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

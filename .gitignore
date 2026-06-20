@@ -56,3 +56,8 @@ storage/
 
 # Claude Code machine-local settings
 .claude/settings.local.json
+
+# Installed agent-skills toolkit (HyperFrames etc. — regenerable via `npx skills add`)
+.agents/
+.claude/skills/
+skills-lock.json

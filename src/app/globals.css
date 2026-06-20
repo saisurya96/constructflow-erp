@@ -46,6 +46,8 @@
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-muted: var(--brand-muted);
+  /* AA-safe deep orange for small brand text on the light paper bg (~5.5:1). */
+  --color-brand-strong: var(--brand-strong);
 
   /* semantic status colours — critical / warning / good / info(graphite) */
   --color-critical: var(--critical);
@@ -99,6 +101,7 @@
   --brand: oklch(0.66 0.19 46);
   --brand-foreground: oklch(0.99 0.012 80);
   --brand-muted: oklch(0.955 0.035 64);
+  --brand-strong: #a8500f;
 
   --critical: oklch(0.55 0.21 27);
   --critical-foreground: oklch(0.985 0 0);
