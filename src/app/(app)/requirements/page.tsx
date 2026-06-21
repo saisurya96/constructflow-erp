@@ -99,6 +99,10 @@ export default async function RequirementsPage() {
   const open = rows.filter((x) => !["fulfilled", "cancelled"].includes(x.r.status));
   const toSource = rows.filter((x) => x.r.status === "submitted");
   const shortages = open.filter((x) => x.shortage > 0);
+  // The buyer's "Sourcing inbox" is an action list — hide already-fulfilled and
+  // cancelled needs so it only shows what still needs sourcing. The PM's
+  // "Requirements" view is a tracker, so it keeps the full list.
+  const visibleRows = isBuyer ? open : rows;
 
   return (
     <div>
@@ -120,12 +124,16 @@ export default async function RequirementsPage() {
       </div>
 
       <SectionCard noPadding>
-        {rows.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="p-6">
             <EmptyState
               icon={<ClipboardList className="size-5" />}
-              title="No requirements yet"
-              description="Requirements raised on project tasks show up here."
+              title={isBuyer ? "Nothing to source" : "No requirements yet"}
+              description={
+                isBuyer
+                  ? "Material requirements awaiting sourcing will appear here."
+                  : "Requirements raised on project tasks show up here."
+              }
             />
           </div>
         ) : (
@@ -144,7 +152,7 @@ export default async function RequirementsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ r, required, allocated, received, inbound, shortage, estValue }) => {
+                {visibleRows.map(({ r, required, allocated, received, inbound, shortage, estValue }) => {
                   const cancellable =
                     r.status !== "cancelled" && r.status !== "fulfilled" && received === 0;
                   return (

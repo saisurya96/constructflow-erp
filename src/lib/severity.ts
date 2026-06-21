@@ -31,7 +31,15 @@ export function coverageSeverity(covered: number, required: number): Severity {
 
 export function daysUntil(date: string | Date | null | undefined): number | null {
   if (!date) return null;
-  const d = new Date(date);
+  // A bare date-only string ("2026-06-21") is parsed by `new Date()` as UTC
+  // midnight; in a negative-UTC-offset tenant that snaps to the *previous*
+  // local day, so a deadline due today reads as overdue. Parse date-only
+  // strings as LOCAL midnight to agree with the board (work-views pdate) and
+  // My Work, which both already do `new Date(s + "T00:00:00")`.
+  const d =
+    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      ? new Date(date + "T00:00:00")
+      : new Date(date);
   if (Number.isNaN(d.getTime())) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);

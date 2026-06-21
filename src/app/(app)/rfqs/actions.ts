@@ -16,7 +16,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { formatMoney, money, quantity, num } from "@/lib/money";
+import { formatMoney, money, quantity, num, round2 } from "@/lib/money";
 import { todayISO } from "@/lib/dates";
 
 /* ─────────────────────────────── create RFQ ─────────────────────────────── */
@@ -216,7 +216,9 @@ export async function enterQuote(
       const qty = num(line.quantity);
       return { line, unitPrice, lineTotal: unitPrice * qty, available: unitPrice > 0 };
     });
-    const total = calc.reduce((s, c) => s + (c.available ? c.lineTotal : 0), 0);
+    // Sum the per-line ROUNDED totals (the values actually stored) so the quote
+    // header total always foots to the line column on the comparison.
+    const total = round2(calc.reduce((s, c) => s + (c.available ? round2(c.lineTotal) : 0), 0));
     if (total <= 0)
       return fail("Enter a unit price above zero for at least one line");
 
@@ -377,9 +379,28 @@ export async function awardQuote(
       .limit(1);
     const vatRate = num(company?.vatRate);
 
-    const subtotal = num(quote.totalAmount);
-    const tax = subtotal * (vatRate / 100);
-    const total = subtotal + tax;
+    // Build the PO line data first so the header subtotal is the sum of the
+    // per-line ROUNDED totals actually stored — not the inherited quote header,
+    // which need not equal Σ(rounded line totals). This guarantees the awarded
+    // PO's printed lines foot to its subtotal.
+    const poLineData = lines.map((l, i) => {
+      const ql = quoteLineByRfqLine.get(l.id);
+      const unitPrice = ql ? num(ql.unitPrice) : 0;
+      const qty = num(l.quantity);
+      return {
+        requirementId: l.requirementId ?? null,
+        wbsId: l.requirementId ? (reqWbs.get(l.requirementId) ?? null) : null,
+        itemName: l.itemName,
+        unit: l.unit,
+        quantity: quantity(qty),
+        unitPrice: money(unitPrice),
+        lineTotal: money(round2(unitPrice * qty)),
+        sortOrder: i,
+      };
+    });
+    const subtotal = round2(poLineData.reduce((s, pl) => s + num(pl.lineTotal), 0));
+    const tax = round2(subtotal * (vatRate / 100));
+    const total = round2(subtotal + tax);
 
     const poNumber = await nextNumber(tx, ctx.companyId, "PO", "PO");
     const [po] = await tx
@@ -404,23 +425,7 @@ export async function awardQuote(
       .returning();
 
     await tx.insert(t.purchaseOrderLines).values(
-      lines.map((l, i) => {
-        const ql = quoteLineByRfqLine.get(l.id);
-        const unitPrice = ql ? num(ql.unitPrice) : 0;
-        const qty = num(l.quantity);
-        return {
-          companyId: ctx.companyId,
-          poId: po.id,
-          requirementId: l.requirementId ?? null,
-          wbsId: l.requirementId ? (reqWbs.get(l.requirementId) ?? null) : null,
-          itemName: l.itemName,
-          unit: l.unit,
-          quantity: quantity(qty),
-          unitPrice: money(unitPrice),
-          lineTotal: money(unitPrice * qty),
-          sortOrder: i,
-        };
-      }),
+      poLineData.map((pl) => ({ companyId: ctx.companyId, poId: po.id, ...pl })),
     );
 
     await audit(tx, ctx, {
@@ -435,7 +440,7 @@ export async function awardQuote(
     revalidatePath(`/rfqs/${rfq.id}`);
     revalidatePath("/rfqs");
     revalidatePath("/orders");
-    return ok("Awarded — draft purchase order created", `/orders/${po.id}`);
+    return ok("Awarded — draft purchase order created; Submit it to commit the order", `/orders/${po.id}`);
   });
 }
 
@@ -453,6 +458,17 @@ export async function issueRfq(
 
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "procurement.manage")) return fail("You don't have permission");
+    // Guard the draft→issued transition: without it, a replayed/stale "Issue"
+    // submit against an already-comparing or awarded RFQ would silently knock it
+    // back to "issued" and corrupt the sourcing state.
+    const [current] = await tx
+      .select({ status: t.rfqs.status })
+      .from(t.rfqs)
+      .where(eq(t.rfqs.id, rfqId))
+      .limit(1)
+      .for("update");
+    if (!current) return fail("RFQ not found");
+    if (current.status !== "draft") return fail("Only a draft RFQ can be issued");
     const [rfq] = await tx
       .update(t.rfqs)
       .set({ status: "issued", updatedAt: new Date() })

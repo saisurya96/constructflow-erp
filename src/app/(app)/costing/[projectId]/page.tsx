@@ -144,11 +144,17 @@ export default async function JobCostingDetailPage({
         <StatCard
           label="Forecast"
           value={formatMoney(cost.forecast, currency, { compact: true })}
-          tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
+          // Only flag "over budget" once a budget is actually set — a new job
+          // with budget 0 and any cost would otherwise always read over budget
+          // (and the dashboard's over-budget queue, gated on budget>0, wouldn't
+          // include it, so the two views would contradict each other).
+          tone={cost.budget > 0 && cost.variance > cost.budget * 0.03 ? "warning" : "good"}
           sub={
-            cost.variance > 0
-              ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
-              : "on budget"
+            cost.budget === 0
+              ? "No budget set"
+              : cost.variance > 0
+                ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
+                : "on budget"
           }
         />
         <StatCard

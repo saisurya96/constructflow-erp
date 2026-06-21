@@ -7,6 +7,7 @@ import {
   HardHat,
   Menu,
   LogOut,
+  KeyRound,
   LayoutDashboard,
   FolderKanban,
   ClipboardList,
@@ -37,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { ChangePasswordDialog } from "@/components/app/change-password-dialog";
 import { logoutAction } from "@/app/(auth)/actions";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -135,38 +137,45 @@ function CompanyTag({ name }: { name: string }) {
 
 function UserMenu({ user }: { user: ShellUser }) {
   const [pending, startTransition] = useTransition();
+  const [pwOpen, setPwOpen] = useState(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-sidebar-accent">
-        <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-[0.6875rem] font-semibold text-background">
-          {user.fullName.slice(0, 2).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.8125rem] font-medium text-foreground">
-            {user.fullName}
-          </p>
-          <p className="truncate text-xs text-sidebar-foreground">
-            {user.roleLabel}
-          </p>
-        </div>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-56">
-        <DropdownMenuLabel>
-          <p className="text-sm font-medium">{user.fullName}</p>
-          <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          disabled={pending}
-          closeOnClick={false}
-          onClick={() => startTransition(() => logoutAction())}
-        >
-          <LogOut className="size-4" /> Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-sidebar-accent">
+          <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-[0.6875rem] font-semibold text-background">
+            {user.fullName.slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[0.8125rem] font-medium text-foreground">
+              {user.fullName}
+            </p>
+            <p className="truncate text-xs text-sidebar-foreground">
+              {user.roleLabel}
+            </p>
+          </div>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="top" className="w-56">
+          <DropdownMenuLabel>
+            <p className="text-sm font-medium">{user.fullName}</p>
+            <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setPwOpen(true)}>
+            <KeyRound className="size-4" /> Change password
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={pending}
+            closeOnClick={false}
+            onClick={() => startTransition(() => logoutAction())}
+          >
+            <LogOut className="size-4" /> Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+    </>
   );
 }
 

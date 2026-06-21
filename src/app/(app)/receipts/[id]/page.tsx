@@ -11,7 +11,7 @@ import type { BadgeTone } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
-import { StatusBadge } from "@/components/app/status-badge";
+import { StatusBadge, StatusPill } from "@/components/app/status-badge";
 import { ActionButton } from "@/components/app/action-button";
 import { reverseGoodsReceipt } from "@/app/(app)/inventory/actions";
 
@@ -109,7 +109,7 @@ export default async function GrnDetailPage({
         }
         actions={
           <div className="flex items-center gap-2">
-            <StatusBadge tone={GRN_TONE[grn.status] ?? "neutral"}>{grn.status}</StatusBadge>
+            <StatusPill status={grn.status} tones={GRN_TONE} />
             {canReverse && grn.status === "posted" && (
               <ActionButton
                 action={reverseGoodsReceipt}

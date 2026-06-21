@@ -47,6 +47,18 @@ export async function postManualCost(
       .limit(1);
     if (!project) return fail("Project not found");
 
+    // Bind an optional WBS to THIS project (RLS only bounds the tenant). A
+    // foreign-project cost code would count toward the project total yet vanish
+    // from the per-WBS table, so the rows would stop reconciling to the header.
+    if (d.wbsId) {
+      const [w] = await tx
+        .select({ id: t.wbsCodes.id })
+        .from(t.wbsCodes)
+        .where(and(eq(t.wbsCodes.id, d.wbsId), eq(t.wbsCodes.projectId, d.projectId)))
+        .limit(1);
+      if (!w) return fail("Cost code not found for this project");
+    }
+
     await tx.insert(t.costPostings).values({
       companyId: ctx.companyId,
       projectId: d.projectId,
@@ -85,7 +97,6 @@ export async function reverseCostPosting(
   formData: FormData,
 ): Promise<ActionState> {
   const postingId = String(formData.get("postingId") ?? "");
-  const projectId = String(formData.get("projectId") ?? "");
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "billing.manage")) return fail("You don't have permission");
     const [orig] = await tx
@@ -123,10 +134,12 @@ export async function reverseCostPosting(
       entityId: orig.id,
       summary: `Reversed manual ${orig.type} of ${money(num(orig.amount))}`,
       risk: "warning",
-      projectId,
+      // Derive from the original posting, not the form, so a mismatched
+      // projectId can't mislabel the audit trail or revalidate the wrong page.
+      projectId: orig.projectId,
       metadata: { type: orig.type, amount: money(num(orig.amount)) },
     });
-    revalidatePath(`/costing/${projectId}`);
+    revalidatePath(`/costing/${orig.projectId}`);
     revalidatePath("/costing");
     return ok("Posting reversed");
   });

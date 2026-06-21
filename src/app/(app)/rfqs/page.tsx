@@ -42,7 +42,7 @@ export default async function RfqsPage() {
     const received = await tx
       .select({
         rfqId: t.vendorQuotes.rfqId,
-        c: sql<string>`count(*) filter (where ${t.vendorQuotes.status} <> 'pending')`,
+        c: sql<string>`count(*) filter (where ${t.vendorQuotes.submittedAt} is not null)`,
       })
       .from(t.vendorQuotes)
       .groupBy(t.vendorQuotes.rfqId);

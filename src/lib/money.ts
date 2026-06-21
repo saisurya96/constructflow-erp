@@ -58,7 +58,10 @@ export function formatNumber(
   v: string | number | null | undefined,
   maximumFractionDigits = 2,
 ): string {
-  return new Intl.NumberFormat("en-AE", { maximumFractionDigits }).format(num(v));
+  // Locale "en" (not "en-AE") to match formatMoney/formatMoneyExact above —
+  // the app is tenant-agnostic, so number grouping must be consistent app-wide
+  // rather than carrying a stray UAE locale.
+  return new Intl.NumberFormat("en", { maximumFractionDigits }).format(num(v));
 }
 
 export function formatPercent(
@@ -66,6 +69,13 @@ export function formatPercent(
   digits = 0,
 ): string {
   return `${num(v).toFixed(digits)}%`;
+}
+
+/** Round a number to 2 dp (numeric, not string). Use to derive a dependent
+ * money value from already-rounded parts so totals reconcile to the cent
+ * (e.g. total = round2(subtotal) + round2(tax)). */
+export function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 /** Round to 2 dp and return as a string suitable for a numeric(_,2) column. */

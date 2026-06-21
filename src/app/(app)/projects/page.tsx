@@ -90,7 +90,13 @@ export default async function ProjectsPage() {
           label="Forecast vs budget"
           value={formatMoney(totalForecast - totalBudget, currency, { compact: true })}
           tone={totalForecast > totalBudget * 1.03 ? "warning" : "good"}
-          sub={totalForecast > totalBudget ? "over budget" : "within budget"}
+          sub={
+            totalForecast > totalBudget * 1.03
+              ? "over budget"
+              : totalForecast > totalBudget
+                ? "within tolerance"
+                : "within budget"
+          }
         />
       </div>
 

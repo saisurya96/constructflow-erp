@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Tx } from "@/db/client";
 import {
   costPostings,
@@ -90,6 +90,11 @@ export type VendorStats = {
  *  - defect  = rejected ÷ (accepted + rejected) across posted GRN lines
  */
 export async function getVendorStats(tx: Tx): Promise<Map<string, VendorStats>> {
+  // Spend = committed business only, to match the project cost ledger (a
+  // commitment is posted when a PO is *released*, not while it's a draft /
+  // pending-approval / approved). Counting those pre-release statuses would
+  // make a vendor's "Total spend" exceed what the costing module calls
+  // committed for the same orders.
   const spends = await tx
     .select({
       vendorId: purchaseOrders.vendorId,
@@ -97,18 +102,30 @@ export async function getVendorStats(tx: Tx): Promise<Map<string, VendorStats>> 
       orders: sql<number>`count(*)`,
     })
     .from(purchaseOrders)
-    .where(ne(purchaseOrders.status, "cancelled"))
+    .where(
+      inArray(purchaseOrders.status, [
+        "released",
+        "partially_received",
+        "received",
+        "closed",
+      ]),
+    )
     .groupBy(purchaseOrders.vendorId);
 
+  // `receipts` counts ALL posted GRNs for the vendor; the on-time *rate* is
+  // measured only over those whose PO carried an expected date (you can't be
+  // on/late vs a date that doesn't exist). Filtering the whole query by
+  // expectedDate would silently undercount the receipts sub-label.
   const onTime = await tx
     .select({
       vendorId: purchaseOrders.vendorId,
       total: sql<number>`count(*)`,
+      withDate: sql<number>`count(*) filter (where ${purchaseOrders.expectedDate} is not null)`,
       onTime: sql<number>`count(*) filter (where ${goodsReceipts.receivedDate} <= ${purchaseOrders.expectedDate})`,
     })
     .from(goodsReceipts)
     .innerJoin(purchaseOrders, eq(purchaseOrders.id, goodsReceipts.poId))
-    .where(and(eq(goodsReceipts.status, "posted"), isNotNull(purchaseOrders.expectedDate)))
+    .where(eq(goodsReceipts.status, "posted"))
     .groupBy(purchaseOrders.vendorId);
 
   const defects = await tx
@@ -144,7 +161,8 @@ export async function getVendorStats(tx: Tx): Promise<Map<string, VendorStats>> 
     const s = ensure(r.vendorId);
     if (s) {
       s.receipts = Number(r.total);
-      s.onTimeRate = Number(r.total) > 0 ? (Number(r.onTime) / Number(r.total)) * 100 : null;
+      s.onTimeRate =
+        Number(r.withDate) > 0 ? (Number(r.onTime) / Number(r.withDate)) * 100 : null;
     }
   }
   for (const r of defects) {

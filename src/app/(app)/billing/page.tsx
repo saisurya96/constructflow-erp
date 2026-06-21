@@ -26,6 +26,7 @@ export default async function BillingPage() {
         type: t.invoices.type,
         title: t.invoices.title,
         status: t.invoices.status,
+        subtotal: t.invoices.subtotal,
         totalAmount: t.invoices.totalAmount,
         amountPaid: t.invoices.amountPaid,
         dueDate: t.invoices.dueDate,
@@ -83,6 +84,7 @@ export default async function BillingPage() {
   }));
 
   const rows = data.invoices.map((inv) => {
+    const subtotal = num(inv.subtotal);
     const total = num(inv.totalAmount);
     const paid = num(inv.amountPaid);
     const outstanding = total - paid;
@@ -92,11 +94,14 @@ export default async function BillingPage() {
       d < 0 &&
       outstanding > 0 &&
       (inv.status === "sent" || inv.status === "partially_paid");
-    return { inv, total, paid, outstanding, overdue };
+    return { inv, subtotal, total, paid, outstanding, overdue };
   });
 
   const open = rows.filter((r) => r.inv.status !== "void");
-  const billed = open.reduce((s, r) => s + r.total, 0);
+  // "Billed" is net of VAT, consistent with the project page's Billed-to-date
+  // and the over-billing guard (VAT is a pass-through tax, not revenue). The
+  // table's Total/Outstanding columns stay gross — clients pay gross.
+  const billed = open.reduce((s, r) => s + r.subtotal, 0);
   const collected = open.reduce((s, r) => s + r.paid, 0);
   const outstanding = open.reduce((s, r) => s + Math.max(0, r.outstanding), 0);
   const overdueCount = rows.filter((r) => r.overdue).length;

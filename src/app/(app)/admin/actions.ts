@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { CURRENCY_OPTIONS } from "@/lib/constants";
 import { db } from "@/lib/auth/context";
@@ -19,6 +19,29 @@ import {
 
 const ROLES = ["admin", "pm", "buyer", "storekeeper", "finance"] as const;
 const zRole = z.enum(ROLES);
+
+/**
+ * How many *other* active administrators the company would still have if the
+ * given user were demoted or deactivated. Used to refuse the change that would
+ * leave the tenant with zero admins — an unrecoverable lock-out, since
+ * Administration is the only place to restore a role and it requires admin.
+ */
+async function otherActiveAdminCount(
+  tx: Parameters<Parameters<typeof db>[0]>[0],
+  excludeUserId: string,
+): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(t.users)
+    .where(
+      and(
+        eq(t.users.role, "admin"),
+        eq(t.users.isActive, true),
+        ne(t.users.id, excludeUserId),
+      ),
+    );
+  return Number(row?.n ?? 0);
+}
 
 /* ───────────────────────────── users / team ───────────────────────────── */
 
@@ -65,7 +88,9 @@ export async function createUser(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (/unique|duplicate|users_email_unique/i.test(message))
-        return fail("Email already in use", { email: "Email already in use" });
+        return fail("That email is already registered. Each person signs in with one email across ConstructFlow — use a different one.", {
+          email: "Already registered",
+        });
       throw err;
     }
   });
@@ -85,6 +110,10 @@ export async function updateUserRole(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "admin.manage")) return fail("You don't have permission");
+    // Refuse to demote the company's last administrator (would lock everyone
+    // out of Administration with no in-app way back).
+    if (d.role !== "admin" && (await otherActiveAdminCount(tx, d.userId)) === 0)
+      return fail("Your company must keep at least one administrator");
     const [u] = await tx
       .update(t.users)
       .set({ role: d.role, updatedAt: new Date() })
@@ -120,6 +149,9 @@ export async function setUserActive(
     if (!can(ctx.role, "admin.manage")) return fail("You don't have permission");
     if (d.userId === ctx.userId && !active)
       return fail("You cannot deactivate your own account");
+    // Refuse to deactivate the last active administrator.
+    if (!active && (await otherActiveAdminCount(tx, d.userId)) === 0)
+      return fail("Your company must keep at least one administrator");
     const [u] = await tx
       .update(t.users)
       .set({ isActive: active, updatedAt: new Date() })
@@ -179,7 +211,9 @@ export async function updateUser(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (/unique|duplicate|users_email_unique/i.test(message))
-        return fail("Email already in use", { email: "Email already in use" });
+        return fail("That email is already registered to another account.", {
+          email: "Already registered",
+        });
       throw err;
     }
   });

@@ -6,7 +6,7 @@ import { requireUser, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
 import { num, formatMoney } from "@/lib/money";
-import { formatDateTime, fromNow, todayISO } from "@/lib/dates";
+import { formatDateTime, fromNow, localDay } from "@/lib/dates";
 import { APPROVAL_STATUS_TONE, type BadgeTone } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -71,6 +71,9 @@ export default async function ApprovalsPage() {
       decisionNote: t.approvals.decisionNote,
       decidedAt: t.approvals.decidedAt,
       createdAt: t.approvals.createdAt,
+      // Change-order rationale: a CO approval's entityId is the change order's
+      // id, so this joins only for change_order rows (PO/invoice ids won't match).
+      coDescription: t.changeOrders.description,
     };
     // Pending: never capped, oldest first (so nothing silently drops off a
     // recent-N window). Decided: a recent slice for context.
@@ -80,6 +83,7 @@ export default async function ApprovalsPage() {
       .leftJoin(t.projects, eq(t.projects.id, t.approvals.projectId))
       .leftJoin(requester, eq(requester.id, t.approvals.requestedBy))
       .leftJoin(decider, eq(decider.id, t.approvals.decidedBy))
+      .leftJoin(t.changeOrders, eq(t.changeOrders.id, t.approvals.entityId))
       .where(eq(t.approvals.status, "pending"))
       .orderBy(asc(t.approvals.createdAt));
     const decided = await tx
@@ -88,6 +92,7 @@ export default async function ApprovalsPage() {
       .leftJoin(t.projects, eq(t.projects.id, t.approvals.projectId))
       .leftJoin(requester, eq(requester.id, t.approvals.requestedBy))
       .leftJoin(decider, eq(decider.id, t.approvals.decidedBy))
+      .leftJoin(t.changeOrders, eq(t.changeOrders.id, t.approvals.entityId))
       .where(ne(t.approvals.status, "pending"))
       .orderBy(desc(t.approvals.decidedAt))
       .limit(50);
@@ -95,9 +100,10 @@ export default async function ApprovalsPage() {
   });
 
   const pendingValue = pending.reduce((s, a) => s + num(a.amount), 0);
-  const today = todayISO();
-  const isToday = (d: Date | null) =>
-    !!d && new Date(d).toISOString().slice(0, 10) === today;
+  // Bucket "today" by the server's local calendar day (same basis the page's
+  // timestamps render in), not UTC, so decisions don't mis-bucket at the boundary.
+  const today = localDay(new Date());
+  const isToday = (d: Date | null) => localDay(d) === today;
   const approvedToday = decided.filter((a) => a.status === "approved" && isToday(a.decidedAt)).length;
   const rejectedToday = decided.filter((a) => a.status === "rejected" && isToday(a.decidedAt)).length;
 
@@ -108,7 +114,7 @@ export default async function ApprovalsPage() {
         title="Approvals"
         description={
           canDecide
-            ? "Authorize purchase orders and change orders that exceed the approval threshold."
+            ? "Authorize purchase orders above the approval threshold, plus all submitted change orders."
             : "Track the status of submissions awaiting authorization."
         }
       />
@@ -140,7 +146,7 @@ export default async function ApprovalsPage() {
             <EmptyState
               icon={<BadgeCheck className="size-5" />}
               title="Nothing awaiting approval"
-              description="Requests above the approval threshold land here for a decision."
+              description="Submissions awaiting authorization land here for a decision."
             />
           </div>
         ) : (
@@ -173,6 +179,11 @@ export default async function ApprovalsPage() {
                         </Link>
                       ) : (
                         <span className="font-medium text-foreground">{a.title}</span>
+                      )}
+                      {a.coDescription && (
+                        <span className="mt-0.5 block max-w-md text-xs text-muted-foreground">
+                          {a.coDescription}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">

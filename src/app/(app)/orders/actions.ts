@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Tx } from "@/db/client";
 import { db } from "@/lib/auth/context";
@@ -17,7 +17,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { money, quantity, num } from "@/lib/money";
+import { money, quantity, num, round2 } from "@/lib/money";
 
 /* ───────────────────────── create PO / subcontract ─────────────────────── */
 
@@ -145,10 +145,13 @@ export async function createPurchaseOrder(
       .where(eq(t.companies.id, ctx.companyId))
       .limit(1);
 
-    const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
+    // Build the subtotal from the per-line ROUNDED totals that are actually
+    // stored, so Σ(printed line totals) === printed Subtotal, then derive VAT
+    // and Total from the rounded subtotal so all three reconcile to the cent.
+    const subtotal = round2(lines.reduce((s, l) => s + round2(l.lineTotal), 0));
     const vatRate = num(company?.vatRate);
-    const taxAmount = subtotal * (vatRate / 100);
-    const totalAmount = subtotal + taxAmount;
+    const taxAmount = round2(subtotal * (vatRate / 100));
+    const totalAmount = round2(subtotal + taxAmount);
 
     const isSub = d.type === "subcontract";
     const number = isSub
@@ -231,7 +234,10 @@ export async function submitPurchaseOrder(
       .limit(1);
     const threshold = num(company?.threshold);
 
-    if (num(po.totalAmount) >= threshold) {
+    // Gate on the NET (ex-VAT) order value — the same basis as the cost
+    // committed to the job ledger on release and as the change-order approval.
+    // (VAT is a pass-through tax, not committed spend.)
+    if (num(po.subtotal) >= threshold) {
       await tx
         .update(t.purchaseOrders)
         .set({ status: "pending_approval", updatedAt: new Date() })
@@ -243,7 +249,7 @@ export async function submitPurchaseOrder(
         entityType: "purchase_order",
         entityId: po.id,
         title: `${po.number} — ${po.title}`,
-        amount: po.totalAmount,
+        amount: po.subtotal,
         projectId: po.projectId,
         requestedBy: ctx.userId,
       });
@@ -252,7 +258,7 @@ export async function submitPurchaseOrder(
         action: "po.submit",
         entityType: "purchase_order",
         entityId: po.id,
-        summary: `Submitted ${po.number} for approval (${money(num(po.totalAmount))})`,
+        summary: `Submitted ${po.number} for approval (${money(num(po.subtotal))} net)`,
         risk: "warning",
         projectId: po.projectId,
       });
@@ -455,10 +461,11 @@ export async function updatePurchaseOrder(
       .from(t.companies)
       .where(eq(t.companies.id, ctx.companyId))
       .limit(1);
-    const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
+    // Round once, derive from rounded parts (see createPurchaseOrder).
+    const subtotal = round2(lines.reduce((s, l) => s + round2(l.lineTotal), 0));
     const vatRate = num(company?.vatRate);
-    const taxAmount = subtotal * (vatRate / 100);
-    const totalAmount = subtotal + taxAmount;
+    const taxAmount = round2(subtotal * (vatRate / 100));
+    const totalAmount = round2(subtotal + taxAmount);
 
     await tx
       .update(t.purchaseOrders)
@@ -525,11 +532,14 @@ export async function closePurchaseOrder(
       .limit(1)
       .for("update");
     if (!po) return fail("Order not found");
-    if (!["released", "partially_received", "received"].includes(po.status))
-      return fail("Only a released or received order can be closed");
+    // `received` is the terminal state for a fully-received order and is already
+    // out of every open list, so it isn't closeable from the UI — only a still-
+    // open (released / partially-received) order can be closed.
+    if (!["released", "partially_received"].includes(po.status))
+      return fail("Only a released order can be closed");
 
     let releasedCommitment = 0;
-    if (po.projectId && po.status !== "received") {
+    if (po.projectId) {
       const lines = await tx
         .select({
           quantity: t.purchaseOrderLines.quantity,
@@ -585,5 +595,68 @@ export async function closePurchaseOrder(
     revalidatePath(`/orders/${poId}`);
     revalidatePath("/costing");
     return ok("Order closed");
+  });
+}
+
+/* ─────────────────────────── reopen rejected ───────────────────────────── */
+
+/**
+ * Reopen a rejection-cancelled order back to `draft` so the buyer can revise and
+ * resubmit — mirroring reopenChangeOrder. Only an order cancelled *by a rejected
+ * approval* (which never posted commitment) can reopen; a cancellation that
+ * released committed cost stays terminal, so reopening can't silently re-commit.
+ */
+export async function reopenPurchaseOrder(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const poId = String(formData.get("poId") ?? "");
+  if (!poId) return fail("Missing order");
+
+  return db(async (tx, ctx) => {
+    if (!can(ctx.role, "procurement.manage")) return fail("You don't have permission");
+    const [po] = await tx
+      .select()
+      .from(t.purchaseOrders)
+      .where(eq(t.purchaseOrders.id, poId))
+      .limit(1)
+      .for("update");
+    if (!po) return fail("Order not found");
+    if (po.status !== "cancelled") return fail("Only a cancelled order can be reopened");
+
+    // Require a rejected approval on record so only rejection-cancelled orders
+    // reopen — a released-then-cancelled order has an approved/no approval and
+    // stays terminal (its commitment was already reversed).
+    const [rejected] = await tx
+      .select({ id: t.approvals.id })
+      .from(t.approvals)
+      .where(
+        and(
+          eq(t.approvals.entityId, po.id),
+          eq(t.approvals.entityType, "purchase_order"),
+          eq(t.approvals.status, "rejected"),
+        ),
+      )
+      .orderBy(desc(t.approvals.createdAt))
+      .limit(1);
+    if (!rejected) return fail("This order can no longer be reopened");
+
+    await tx
+      .update(t.purchaseOrders)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(eq(t.purchaseOrders.id, po.id));
+
+    await audit(tx, ctx, {
+      action: "po.reopen",
+      entityType: "purchase_order",
+      entityId: po.id,
+      summary: `Reopened ${po.number} to draft for revision`,
+      risk: "neutral",
+      projectId: po.projectId,
+    });
+
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${poId}`);
+    return ok("Order reopened to draft");
   });
 }

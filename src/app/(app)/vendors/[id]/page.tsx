@@ -133,7 +133,15 @@ export default async function VendorDetailPage({
               <ActionButton
                 action={setVendorActive}
                 fields={{ vendorId: vendor.id, active: vendor.isActive ? "false" : "true" }}
-                confirm={vendor.isActive ? `Deactivate ${vendor.name}? It will be hidden from RFQ/PO pickers.` : undefined}
+                confirm={
+                  vendor.isActive
+                    ? `Deactivate ${vendor.name}?${
+                        openPOs
+                          ? ` They have ${openPOs} open order${openPOs === 1 ? "" : "s"} that will remain, but no new orders can be raised.`
+                          : " They'll be hidden from RFQ/PO pickers."
+                      }`
+                    : undefined
+                }
                 variant="outline"
                 size="sm"
               >
@@ -169,7 +177,7 @@ export default async function VendorDetailPage({
         <StatCard
           label="Avg compliance"
           value={avgCompliance > 0 ? formatPercent(avgCompliance) : "—"}
-          sub={`${quotes.length} quote${quotes.length === 1 ? "" : "s"}`}
+          sub={`${compliant.length} of ${quotes.length} scored`}
           tone={
             avgCompliance === 0
               ? "neutral"

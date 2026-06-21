@@ -5,7 +5,7 @@ import { Building2, CalendarClock, FolderKanban, Receipt, Printer, Ban } from "l
 import { requireCapability, db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
 import * as t from "@/db/schema";
-import { num, formatMoney } from "@/lib/money";
+import { num, formatMoney, formatMoneyExact } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { PO_STATUS_TONE } from "@/lib/constants";
 import { PageHeader } from "@/components/app/page-header";
@@ -17,7 +17,12 @@ import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { AttachmentsPanel } from "@/components/app/attachments-panel";
 import { Button } from "@/components/ui/button";
-import { submitPurchaseOrder, cancelPurchaseOrder, closePurchaseOrder } from "../actions";
+import {
+  submitPurchaseOrder,
+  cancelPurchaseOrder,
+  closePurchaseOrder,
+  reopenPurchaseOrder,
+} from "../actions";
 import { EditPoDialog } from "../dialogs";
 
 export default async function OrderDetailPage({
@@ -257,11 +262,23 @@ export default async function OrderDetailPage({
       />
 
       {po.status === "cancelled" && approval?.status === "rejected" && approval.decisionNote && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-critical/30 bg-critical/5 px-3 py-2.5 text-sm text-critical">
-          <Ban className="mt-0.5 size-4 shrink-0" />
-          <span>
-            Rejected{approval.decidedByName ? ` by ${approval.decidedByName}` : ""}: {approval.decisionNote}
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-critical/30 bg-critical/5 px-3 py-2.5 text-sm text-critical">
+          <span className="flex items-start gap-2">
+            <Ban className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Rejected{approval.decidedByName ? ` by ${approval.decidedByName}` : ""}: {approval.decisionNote}
+            </span>
           </span>
+          {canManage && (
+            <ActionButton
+              action={reopenPurchaseOrder}
+              fields={{ poId: po.id }}
+              variant="outline"
+              size="sm"
+            >
+              Reopen to draft
+            </ActionButton>
+          )}
         </div>
       )}
 
@@ -326,8 +343,8 @@ export default async function OrderDetailPage({
                       <td className="px-4 py-2.5 text-right tabular">
                         {q} {l.unit}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.unitPrice, currency)}</td>
-                      <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.lineTotal, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoneyExact(l.unitPrice, currency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular">{formatMoneyExact(l.lineTotal, currency)}</td>
                       <td className="px-4 py-2.5">
                         <ProgressMeter
                           value={pct}
@@ -347,7 +364,7 @@ export default async function OrderDetailPage({
                     Subtotal
                   </td>
                   <td className="px-4 py-2.5 text-right font-medium tabular">
-                    {formatMoney(po.subtotal, currency)}
+                    {formatMoneyExact(po.subtotal, currency)}
                   </td>
                   <td />
                 </tr>
@@ -355,7 +372,7 @@ export default async function OrderDetailPage({
                   <td className="px-4 py-1.5" colSpan={3}>
                     VAT
                   </td>
-                  <td className="px-4 py-1.5 text-right tabular">{formatMoney(po.taxAmount, currency)}</td>
+                  <td className="px-4 py-1.5 text-right tabular">{formatMoneyExact(po.taxAmount, currency)}</td>
                   <td />
                 </tr>
                 <tr className="border-t text-sm">
@@ -363,7 +380,7 @@ export default async function OrderDetailPage({
                     Total
                   </td>
                   <td className="px-4 py-2.5 text-right font-semibold tabular">
-                    {formatMoney(po.totalAmount, currency)}
+                    {formatMoneyExact(po.totalAmount, currency)}
                   </td>
                   <td />
                 </tr>

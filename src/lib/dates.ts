@@ -24,3 +24,11 @@ export function fromNow(d: string | Date | null | undefined): string {
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+/** The calendar day of a timestamp in the SERVER's local zone (yyyy-MM-dd).
+ *  Use for "today" counters so they match the times rendered on the page,
+ *  rather than bucketing around the UTC midnight boundary. */
+export function localDay(d: string | Date | null | undefined): string {
+  const date = toDate(d);
+  return date ? format(date, "yyyy-MM-dd") : "";
+}

@@ -73,9 +73,11 @@ export default async function CostingPage() {
           value={formatMoney(totals.forecast, currency, { compact: true })}
           tone={totals.forecast > totals.budget * 1.03 ? "warning" : "good"}
           sub={
-            totals.forecast - totals.budget > 0
+            totals.forecast > totals.budget * 1.03
               ? `+${formatMoney(totals.forecast - totals.budget, currency, { compact: true })} over budget`
-              : "on budget"
+              : totals.forecast > totals.budget
+                ? "within tolerance"
+                : "on budget"
           }
         />
         <StatCard
@@ -106,13 +108,23 @@ export default async function CostingPage() {
                   <th className="px-4 py-2.5 text-right font-medium">Committed</th>
                   <th className="px-4 py-2.5 text-right font-medium">Actual</th>
                   <th className="px-4 py-2.5 text-right font-medium">Forecast</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Variance</th>
+                  <th
+                    className="px-4 py-2.5 text-right font-medium"
+                    title="Variance = cost-to-date (incurred) vs budget. Negative means under budget."
+                  >
+                    Variance
+                  </th>
                   <th className="px-4 py-2.5 text-right font-medium">Margin</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(({ project, cost, margin }) => {
-                  const vTone = varianceTone(cost.variance, cost.budget);
+                  // Show cost-to-date vs budget so a job under budget reads as a
+                  // negative (favorable) figure — the floored EAC `cost.variance`
+                  // can never go below zero. No budget set → nothing to compare.
+                  const hasBudget = cost.budget > 0;
+                  const budgetVariance = cost.incurred - cost.budget;
+                  const vTone = hasBudget ? varianceTone(budgetVariance, cost.budget) : "good";
                   return (
                     <tr key={project.id} className="border-b last:border-0 hover:bg-muted/40">
                       <td className="px-4 py-2.5">
@@ -134,15 +146,18 @@ export default async function CostingPage() {
                       <td className="px-4 py-2.5 text-right tabular">{formatMoney(cost.forecast, currency)}</td>
                       <td
                         className={`px-4 py-2.5 text-right tabular ${
-                          vTone === "critical"
-                            ? "text-critical"
-                            : vTone === "warning"
-                              ? "text-warning-foreground"
-                              : "text-good"
+                          !hasBudget
+                            ? "text-muted-foreground"
+                            : vTone === "critical"
+                              ? "text-critical"
+                              : vTone === "warning"
+                                ? "text-warning-foreground"
+                                : "text-good"
                         }`}
                       >
-                        {cost.variance > 0 ? "+" : ""}
-                        {formatMoney(cost.variance, currency)}
+                        {hasBudget
+                          ? `${budgetVariance > 0 ? "+" : ""}${formatMoney(budgetVariance, currency)}`
+                          : "—"}
                       </td>
                       <td
                         className={`px-4 py-2.5 text-right tabular ${margin < 0 ? "text-critical" : "text-good"}`}

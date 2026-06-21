@@ -80,7 +80,7 @@ export default async function MyWorkPage() {
       <PageHeader
         eyebrow="My Work"
         title="My tasks"
-        description="Everything assigned to you across every project — newest deadlines first."
+        description="Everything assigned to you across every project — soonest deadlines first."
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">

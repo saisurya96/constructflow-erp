@@ -7,7 +7,7 @@ import { formatDate } from "@/lib/dates";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
-import { StatusBadge } from "@/components/app/status-badge";
+import { StatusPill } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
 import { ActionButton } from "@/components/app/action-button";
 import { Button } from "@/components/ui/button";
@@ -122,7 +122,7 @@ export default async function ReceiptsPage() {
                     <td className="px-4 py-2.5 text-muted-foreground">{g.deliveryNoteNumber ?? "—"}</td>
                     <td className="px-4 py-2.5">{formatDate(g.receivedDate)}</td>
                     <td className="px-4 py-2.5">
-                      <StatusBadge tone={GRN_TONE[g.status] ?? "neutral"}>{g.status}</StatusBadge>
+                      <StatusPill status={g.status} tones={GRN_TONE} />
                     </td>
                     {canReverse && (
                       <td className="px-4 py-2.5 text-right">

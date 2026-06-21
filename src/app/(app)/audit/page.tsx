@@ -5,7 +5,6 @@ import { requireCapability, db } from "@/lib/auth/context";
 import { can, type Capability } from "@/lib/rbac";
 import * as t from "@/db/schema";
 import type { Severity } from "@/db/schema";
-import { formatDateTime } from "@/lib/dates";
 import { SEVERITY_TONE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -13,6 +12,7 @@ import { StatCard } from "@/components/app/stat-card";
 import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/app/status-badge";
 import { EmptyState } from "@/components/app/empty-state";
+import { LocalTime } from "@/components/app/local-time";
 import { Button } from "@/components/ui/button";
 
 const PAGE_SIZE = 100;
@@ -197,7 +197,7 @@ export default async function AuditPage({
                   return (
                   <tr key={e.id} className="border-b last:border-0 hover:bg-muted/40">
                     <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground tabular">
-                      {formatDateTime(e.createdAt)}
+                      {e.createdAt ? <LocalTime value={e.createdAt} /> : "—"}
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="font-medium text-foreground">{e.actorName}</span>

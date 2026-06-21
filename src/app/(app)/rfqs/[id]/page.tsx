@@ -125,7 +125,10 @@ export default async function RfqDetailPage({
   if (!result) notFound();
   const { rfq, lines, quotes, quoteLines, po, invitableVendors } = result;
 
-  const received = quotes.filter((q) => q.status !== "pending");
+  // "Received" = genuinely submitted (submittedAt set), not merely non-pending —
+  // a cancelled RFQ auto-rejects its un-quoted invites, which would otherwise be
+  // miscounted as received.
+  const received = quotes.filter((q) => q.submittedAt != null);
   const isAwarded = rfq.status === "awarded";
   const isCancelled = rfq.status === "cancelled";
   const canAward = !isAwarded && !isCancelled;
@@ -196,8 +199,6 @@ export default async function RfqDetailPage({
   const bestCompliance = received.length
     ? Math.max(...received.map((q) => num(q.technicalCompliance)))
     : null;
-
-  const totalQty = lines.reduce((s, l) => s + num(l.quantity), 0);
 
   return (
     <div>
@@ -288,6 +289,12 @@ export default async function RfqDetailPage({
               View {po.number}
             </Button>
           </div>
+          {po.status === "draft" && (
+            <p className="px-1 text-xs text-warning">
+              {po.number} is still a draft — open it and Submit to commit the cost
+              and clear the requirement&apos;s shortage.
+            </p>
+          )}
           {poLive && (
             <p className="px-1 text-xs text-muted-foreground">
               Awarded the wrong vendor? Cancel {po.number} to reopen this RFQ and
@@ -448,7 +455,6 @@ export default async function RfqDetailPage({
                   <th className="px-4 py-2.5 font-medium">Vendor</th>
                   <th className="px-4 py-2.5 font-medium">Quote</th>
                   <th className="px-4 py-2.5 text-right font-medium">Total</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Unit</th>
                   <th className="px-4 py-2.5 text-right font-medium">Lead</th>
                   <th className="px-4 py-2.5 font-medium">Delivery</th>
                   <th className="px-4 py-2.5 text-right font-medium">Compliance</th>
@@ -460,7 +466,6 @@ export default async function RfqDetailPage({
                   const total = num(q.totalAmount);
                   const lead = q.leadTimeDays ?? null;
                   const compliance = num(q.technicalCompliance);
-                  const unitPrice = totalQty > 0 ? total / totalQty : 0;
                   const isPending = q.status === "pending";
                   const priced = pricedCountOf(q.id);
                   const complete = isComplete(q.id);
@@ -510,7 +515,7 @@ export default async function RfqDetailPage({
                         )}
                       </td>
                       {isPending ? (
-                        <td className="px-4 py-2.5 text-muted-foreground" colSpan={5}>
+                        <td className="px-4 py-2.5 text-muted-foreground" colSpan={4}>
                           No quote submitted yet
                         </td>
                       ) : (
@@ -519,9 +524,6 @@ export default async function RfqDetailPage({
                             className={`px-4 py-2.5 text-right tabular ${isBestPrice ? "font-semibold text-good" : ""}`}
                           >
                             {formatMoney(total, currency)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right tabular text-muted-foreground">
-                            {formatMoney(unitPrice, currency)}
                           </td>
                           <td
                             className={`px-4 py-2.5 text-right tabular ${isBestLead ? "font-semibold text-good" : ""}`}

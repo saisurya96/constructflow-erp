@@ -4,7 +4,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { CalendarClock, FolderKanban, Flag, Printer } from "lucide-react";
 import { requireCapability, db } from "@/lib/auth/context";
 import * as t from "@/db/schema";
-import { num, formatMoney } from "@/lib/money";
+import { num, formatMoneyExact } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { daysUntil } from "@/lib/severity";
 import { INVOICE_STATUS_TONE } from "@/lib/constants";
@@ -219,17 +219,17 @@ export default async function InvoiceDetailPage({
       {overdue && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-critical/30 bg-critical/5 px-3 py-2 text-sm text-critical">
           <CalendarClock className="size-4" />
-          Overdue by {Math.abs(d!)} day{Math.abs(d!) === 1 ? "" : "s"} — {formatMoney(outstanding, currency)} outstanding.
+          Overdue by {Math.abs(d!)} day{Math.abs(d!) === 1 ? "" : "s"} — {formatMoneyExact(outstanding, currency)} outstanding.
         </div>
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Subtotal" value={formatMoney(invoice.subtotal, currency)} />
-        <StatCard label="Total (incl. tax)" value={formatMoney(total, currency)} />
-        <StatCard label="Paid" value={formatMoney(paid, currency)} tone="good" />
+        <StatCard label="Subtotal" value={formatMoneyExact(invoice.subtotal, currency)} />
+        <StatCard label="Total (incl. tax)" value={formatMoneyExact(total, currency)} />
+        <StatCard label="Paid" value={formatMoneyExact(paid, currency)} tone="good" />
         <StatCard
           label="Outstanding"
-          value={formatMoney(Math.max(0, outstanding), currency)}
+          value={formatMoneyExact(Math.max(0, outstanding), currency)}
           tone={outstanding > 0 ? (overdue ? "critical" : "warning") : "good"}
         />
       </div>
@@ -258,7 +258,7 @@ export default async function InvoiceDetailPage({
                         <td className="px-4 py-2.5 text-muted-foreground">
                           {l.wbsCode ? `${l.wbsCode} ${l.wbsName}` : "—"}
                         </td>
-                        <td className="px-4 py-2.5 text-right tabular">{formatMoney(l.amount, currency)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{formatMoneyExact(l.amount, currency)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -267,34 +267,34 @@ export default async function InvoiceDetailPage({
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Subtotal
                       </td>
-                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.subtotal, currency)}</td>
+                      <td className="px-4 py-2 text-right tabular">{formatMoneyExact(invoice.subtotal, currency)}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Tax
                       </td>
-                      <td className="px-4 py-2 text-right tabular">{formatMoney(invoice.taxAmount, currency)}</td>
+                      <td className="px-4 py-2 text-right tabular">{formatMoneyExact(invoice.taxAmount, currency)}</td>
                     </tr>
                     <tr className="border-t">
                       <td className="px-4 py-2.5 text-right text-sm font-medium" colSpan={2}>
                         Total
                       </td>
                       <td className="px-4 py-2.5 text-right tabular font-semibold">
-                        {formatMoney(total, currency)}
+                        {formatMoneyExact(total, currency)}
                       </td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Paid
                       </td>
-                      <td className="px-4 py-2 text-right tabular text-good">{formatMoney(paid, currency)}</td>
+                      <td className="px-4 py-2 text-right tabular text-good">{formatMoneyExact(paid, currency)}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 text-right text-xs text-muted-foreground" colSpan={2}>
                         Outstanding
                       </td>
                       <td className="px-4 py-2 text-right tabular font-medium">
-                        {formatMoney(Math.max(0, outstanding), currency)}
+                        {formatMoneyExact(Math.max(0, outstanding), currency)}
                       </td>
                     </tr>
                   </tfoot>
@@ -321,7 +321,7 @@ export default async function InvoiceDetailPage({
               {payments.map((p) => (
                 <div key={p.id} className="flex items-start justify-between gap-3 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium tabular">{formatMoney(p.amount, currency)}</p>
+                    <p className="text-sm font-medium tabular">{formatMoneyExact(p.amount, currency)}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(p.paidDate)}
                       {p.method ? ` · ${p.method.replace(/_/g, " ")}` : ""}
@@ -337,7 +337,7 @@ export default async function InvoiceDetailPage({
                       <ActionButton
                         action={reversePayment}
                         fields={{ paymentId: p.id, invoiceId: invoice.id }}
-                        confirm={`Reverse this ${formatMoney(p.amount, currency)} payment?`}
+                        confirm={`Reverse this ${formatMoneyExact(p.amount, currency)} payment?`}
                         variant="ghost"
                         size="xs"
                       >

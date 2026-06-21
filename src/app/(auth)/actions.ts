@@ -7,7 +7,7 @@ import { z } from "zod";
 import { authDb } from "@/db/client";
 import { companies, users, warehouses, auditEvents } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { createSession, destroySession } from "@/lib/auth/session";
+import { createSession, destroySession, readSessionContext } from "@/lib/auth/session";
 import { localeForCountry, CURRENCY_OPTIONS } from "@/lib/constants";
 import { parseForm, fail, type ActionState } from "@/lib/forms";
 
@@ -152,6 +152,7 @@ export async function loginAction(
     .select({
       id: users.id,
       companyId: users.companyId,
+      fullName: users.fullName,
       passwordHash: users.passwordHash,
       isActive: users.isActive,
     })
@@ -165,12 +166,37 @@ export async function loginAction(
   }
 
   await authDb.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+  await authDb.insert(auditEvents).values({
+    companyId: user.companyId,
+    actorId: user.id,
+    actorName: user.fullName,
+    action: "user.login",
+    entityType: "user",
+    entityId: user.id,
+    summary: `${user.fullName} signed in`,
+    risk: "neutral",
+  });
   const ua = (await headers()).get("user-agent");
   await createSession(user.id, user.companyId, ua);
   redirect("/dashboard");
 }
 
 export async function logoutAction(): Promise<void> {
+  // Capture who is signing out before the session is torn down, so the audit
+  // trail records the logout with proper attribution.
+  const ctx = await readSessionContext();
+  if (ctx) {
+    await authDb.insert(auditEvents).values({
+      companyId: ctx.companyId,
+      actorId: ctx.userId,
+      actorName: ctx.fullName,
+      action: "user.logout",
+      entityType: "user",
+      entityId: ctx.userId,
+      summary: `${ctx.fullName} signed out`,
+      risk: "neutral",
+    });
+  }
   await destroySession();
   redirect("/login");
 }

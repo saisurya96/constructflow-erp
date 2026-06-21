@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
@@ -17,7 +17,7 @@ import {
   zOptionalDate,
   type ActionState,
 } from "@/lib/forms";
-import { formatMoney, money, num } from "@/lib/money";
+import { formatMoney, money, num, round2 } from "@/lib/money";
 import { todayISO } from "@/lib/dates";
 
 /* ───────────────────────────── create invoice ───────────────────────────── */
@@ -51,6 +51,7 @@ export async function createInvoice(
     const amount = amounts[i] ?? 0;
     if (!description && amount === 0) continue;
     if (!description) return fail("Each line needs a description");
+    if (amount < 0) return fail("Line amounts can't be negative");
     lines.push({
       description,
       amount,
@@ -71,8 +72,28 @@ export async function createInvoice(
       })
       .from(t.projects)
       .where(eq(t.projects.id, d.projectId))
-      .limit(1);
+      .limit(1)
+      // Lock the project row so concurrent invoice creation for the same
+      // project serializes — the over-billing guard below would otherwise be a
+      // TOCTOU race (two invoices each read the same billed-to-date and both pass).
+      .for("update");
     if (!project) return fail("Project not found");
+
+    // Scope each line's cost code to THIS project — RLS only bounds the tenant,
+    // so a sibling-project wbsId from the form would mis-attribute cost. Null out
+    // any that don't belong (mirrors orders' pruneInvalidLineLinks).
+    const lineWbsIds = [...new Set(lines.map((l) => l.wbsId).filter((x): x is string => !!x))];
+    if (lineWbsIds.length) {
+      const valid = new Set(
+        (
+          await tx
+            .select({ id: t.wbsCodes.id })
+            .from(t.wbsCodes)
+            .where(and(inArray(t.wbsCodes.id, lineWbsIds), eq(t.wbsCodes.projectId, d.projectId)))
+        ).map((r) => r.id),
+      );
+      for (const l of lines) if (l.wbsId && !valid.has(l.wbsId)) l.wbsId = null;
+    }
 
     // Validate milestone (if any) belongs to the project.
     if (d.type === "milestone") {
@@ -99,9 +120,13 @@ export async function createInvoice(
       .limit(1);
     const vatRate = num(company?.vatRate);
 
-    const subtotal = lines.reduce((s, l) => s + l.amount, 0);
-    const taxAmount = subtotal * (vatRate / 100);
-    const total = subtotal + taxAmount;
+    // Round once, then derive dependent values from the already-rounded parts so
+    // the stored Subtotal / VAT / Total always reconcile to the cent on the
+    // printed tax invoice. Invoice line amounts are already 2dp.
+    const subtotal = round2(lines.reduce((s, l) => s + round2(l.amount), 0));
+    if (subtotal <= 0) return fail("Invoice total must be greater than zero");
+    const taxAmount = round2(subtotal * (vatRate / 100));
+    const total = round2(subtotal + taxAmount);
 
     // Over-billing guard: cumulative non-void invoicing can't exceed the
     // contract value. We compare NET (ex-VAT) amounts on both sides — contract
@@ -434,6 +459,7 @@ export async function editInvoice(
     const amount = amounts[i] ?? 0;
     if (!description && amount === 0) continue;
     if (!description) return fail("Each line needs a description");
+    if (amount < 0) return fail("Line amounts can't be negative");
     lines.push({ description, amount, wbsId: wbsRaw[i] && wbsRaw[i] !== "" ? wbsRaw[i] : null });
   }
   if (lines.length === 0) return fail("Add at least one line item");
@@ -449,15 +475,33 @@ export async function editInvoice(
     if (!inv) return fail("Invoice not found");
     if (inv.status !== "draft") return fail("Only draft invoices can be edited");
 
+    // Scope each line's cost code to this invoice's own project (IDOR guard).
+    if (inv.projectId) {
+      const lineWbsIds = [...new Set(lines.map((l) => l.wbsId).filter((x): x is string => !!x))];
+      if (lineWbsIds.length) {
+        const valid = new Set(
+          (
+            await tx
+              .select({ id: t.wbsCodes.id })
+              .from(t.wbsCodes)
+              .where(and(inArray(t.wbsCodes.id, lineWbsIds), eq(t.wbsCodes.projectId, inv.projectId)))
+          ).map((r) => r.id),
+        );
+        for (const l of lines) if (l.wbsId && !valid.has(l.wbsId)) l.wbsId = null;
+      }
+    }
+
     const [company] = await tx
       .select({ vatRate: t.companies.vatRate })
       .from(t.companies)
       .where(eq(t.companies.id, ctx.companyId))
       .limit(1);
     const vatRate = num(company?.vatRate);
-    const subtotal = lines.reduce((s, l) => s + l.amount, 0);
-    const taxAmount = subtotal * (vatRate / 100);
-    const total = subtotal + taxAmount;
+    // Round once, derive dependent values from rounded parts (see createInvoice).
+    const subtotal = round2(lines.reduce((s, l) => s + round2(l.amount), 0));
+    if (subtotal <= 0) return fail("Invoice total must be greater than zero");
+    const taxAmount = round2(subtotal * (vatRate / 100));
+    const total = round2(subtotal + taxAmount);
 
     // Over-billing guard, excluding this draft from the prior-billed sum.
     if (inv.projectId) {
@@ -465,7 +509,9 @@ export async function editInvoice(
         .select({ contractValue: t.projects.contractValue })
         .from(t.projects)
         .where(eq(t.projects.id, inv.projectId))
-        .limit(1);
+        .limit(1)
+        // Lock the project row (same TOCTOU fix as createInvoice).
+        .for("update");
       const contractValue = num(proj?.contractValue);
       if (contractValue > 0) {
         // Net (ex-VAT) comparison, consistent with createInvoice.

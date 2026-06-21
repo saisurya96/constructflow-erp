@@ -332,7 +332,7 @@ export default async function AllocationsPage() {
                   <th className="px-4 py-2.5 font-medium">Task</th>
                   <th className="px-4 py-2.5 text-right font-medium">Qty</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Reserved</th>
+                  <th className="px-4 py-2.5 font-medium">Date</th>
                   {canAllocate && <th className="px-4 py-2.5" />}
                 </tr>
               </thead>
@@ -346,9 +346,13 @@ export default async function AllocationsPage() {
                       {formatNumber(num(a.quantity), 3)} {a.unit}
                     </td>
                     <td className="px-4 py-2.5">
-                      <StatusBadge tone={ALLOC_TONE[a.status] ?? "neutral"}>{a.status}</StatusBadge>
+                      <StatusPill status={a.status} tones={ALLOC_TONE} />
                     </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{formatDate(a.createdAt)}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {a.status === "issued" && a.issuedAt
+                        ? formatDate(a.issuedAt)
+                        : formatDate(a.createdAt)}
+                    </td>
                     {canAllocate && (
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
                         {a.status === "reserved" && (

@@ -254,7 +254,7 @@ async function main() {
     { item: "Ready-mix concrete C40", unit: "m3", qty: 600, task: taskSlab, wbs: "2.0", needed: -2, est: 320, status: "sourcing" as const },
     { item: "Cement OPC 50kg bags", unit: "bag", qty: 1200, task: taskCore, wbs: "3.0", needed: 30, est: 18, status: "fulfilled" as const },
     { item: "MEP cable trays 300mm", unit: "m", qty: 800, task: tasks[5], wbs: "6.0", needed: 45, est: 65, status: "submitted" as const },
-    { item: "AAC blocks 200mm", unit: "pcs", qty: 9000, task: tasks[6], wbs: "5.0", needed: 90, est: 6.5, status: "draft" as const },
+    { item: "AAC blocks 200mm", unit: "pcs", qty: 9000, task: tasks[6], wbs: "5.0", needed: 90, est: 6.5, status: "submitted" as const },
   ];
   const reqs: Record<string, string> = {};
   for (const r of reqDefs) {

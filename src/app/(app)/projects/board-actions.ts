@@ -186,6 +186,16 @@ export async function quickAddTask(input: {
   if (name.length < 2) return fail("Enter a task name");
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    // Verify the project exists in this tenant and is open to changes (IDOR +
+    // closed-project guard).
+    const [proj] = await tx
+      .select({ status: t.projects.status })
+      .from(t.projects)
+      .where(eq(t.projects.id, input.projectId))
+      .limit(1);
+    if (!proj) return fail("Project not found");
+    if (proj.status === "completed" || proj.status === "archived")
+      return fail("Reopen this project to make changes");
     const [maxRow] = await tx
       .select({ m: sql<number>`coalesce(max(${t.tasks.sortOrder}), 0)` })
       .from(t.tasks)
@@ -223,7 +233,7 @@ export async function addChecklistItem(input: {
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
     const [task] = await tx
-      .select({ id: t.tasks.id })
+      .select({ id: t.tasks.id, name: t.tasks.name })
       .from(t.tasks)
       .where(and(eq(t.tasks.id, input.taskId), eq(t.tasks.projectId, input.projectId)))
       .limit(1);
@@ -237,6 +247,13 @@ export async function addChecklistItem(input: {
       taskId: input.taskId,
       title,
       sortOrder: Number(maxRow?.m ?? 0) + 1,
+    });
+    await audit(tx, ctx, {
+      action: "task.checklist.add",
+      entityType: "task",
+      entityId: input.taskId,
+      summary: `Added checklist item to "${task.name}"`,
+      projectId: input.projectId,
     });
     revalidatePath(`/projects/${input.projectId}`);
     return ok("Item added");
@@ -274,13 +291,20 @@ export async function deleteChecklistItem(input: {
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
     const [item] = await tx
-      .select({ id: t.taskChecklistItems.id })
+      .select({ id: t.taskChecklistItems.id, taskId: t.taskChecklistItems.taskId, title: t.taskChecklistItems.title })
       .from(t.taskChecklistItems)
       .innerJoin(t.tasks, eq(t.tasks.id, t.taskChecklistItems.taskId))
       .where(and(eq(t.taskChecklistItems.id, input.itemId), eq(t.tasks.projectId, input.projectId)))
       .limit(1);
     if (!item) return fail("Item not found");
     await tx.delete(t.taskChecklistItems).where(eq(t.taskChecklistItems.id, input.itemId));
+    await audit(tx, ctx, {
+      action: "task.checklist.remove",
+      entityType: "task",
+      entityId: item.taskId,
+      summary: `Removed checklist item "${item.title}"`,
+      projectId: input.projectId,
+    });
     revalidatePath(`/projects/${input.projectId}`);
     return ok("Item removed");
   });

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import type { Tx } from "@/db/client";
@@ -22,6 +22,27 @@ import {
 import { formatMoney, money, num } from "@/lib/money";
 
 const pct = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
+
+/**
+ * Verify a client-supplied projectId belongs to this tenant AND is open to
+ * changes. Returns a fail() ActionState to short-circuit, or null to proceed.
+ * Doubles as the missing IDOR check — schedule/CO create actions otherwise trust
+ * the projectId from the form — and blocks edits to a completed/archived job.
+ */
+async function assertProjectMutable(
+  tx: Tx,
+  projectId: string,
+): Promise<ActionState | null> {
+  const [proj] = await tx
+    .select({ status: t.projects.status })
+    .from(t.projects)
+    .where(eq(t.projects.id, projectId))
+    .limit(1);
+  if (!proj) return fail("Project not found");
+  if (proj.status === "completed" || proj.status === "archived")
+    return fail("Reopen this project to make changes");
+  return null;
+}
 
 async function recomputeProjectProgress(tx: Tx, projectId: string) {
   const rows = await tx
@@ -132,7 +153,10 @@ export async function updateProject(
         name: d.name,
         clientName: d.clientName ?? null,
         location: d.location ?? null,
-        budget: money(d.budget),
+        // Deliberately NOT writing `budget` here: the create dialog has no
+        // project-budget input (budget is set per WBS code), so d.budget is
+        // always 0 — writing it would wipe the running budget that change-order
+        // approvals accumulate onto this column.
         contractValue: money(d.contractValue),
         startDate: d.startDate ?? null,
         endDate: d.endDate ?? null,
@@ -196,6 +220,17 @@ export async function createWbsCode(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    // Friendly duplicate check (the unique index would otherwise throw a 23505
+    // that aborts the tx and surfaces as an uncaught error, not a field error).
+    const [dup] = await tx
+      .select({ id: t.wbsCodes.id })
+      .from(t.wbsCodes)
+      .where(and(eq(t.wbsCodes.projectId, d.projectId), eq(t.wbsCodes.code, d.code)))
+      .limit(1);
+    if (dup)
+      return fail("A cost code with this number already exists", {
+        code: "Code already in use",
+      });
     await tx.insert(t.wbsCodes).values({
       companyId: ctx.companyId,
       projectId: d.projectId,
@@ -226,10 +261,28 @@ export async function updateWbsCode(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "projects.manage")) return fail("You don't have permission");
+    // Reject a rename that collides with another code on the same project.
+    const [dup] = await tx
+      .select({ id: t.wbsCodes.id })
+      .from(t.wbsCodes)
+      .where(
+        and(
+          eq(t.wbsCodes.projectId, d.projectId),
+          eq(t.wbsCodes.code, d.code),
+          ne(t.wbsCodes.id, d.wbsId),
+        ),
+      )
+      .limit(1);
+    if (dup)
+      return fail("A cost code with this number already exists", {
+        code: "Code already in use",
+      });
     const [updated] = await tx
       .update(t.wbsCodes)
       .set({ code: d.code, name: d.name, budget: money(d.budget) })
-      .where(eq(t.wbsCodes.id, d.wbsId))
+      // Bind id AND projectId so an edit can't target another same-tenant
+      // project's code (IDOR), and the revalidated projectId is the real owner.
+      .where(and(eq(t.wbsCodes.id, d.wbsId), eq(t.wbsCodes.projectId, d.projectId)))
       .returning();
     if (!updated) return fail("Cost code not found");
     await audit(tx, ctx, {
@@ -263,7 +316,11 @@ export async function deleteWbsCode(
       return fail("This cost code already has postings and can't be deleted. Set its budget to 0 instead.");
     const [wbs] = await tx
       .delete(t.wbsCodes)
-      .where(eq(t.wbsCodes.id, wbsId))
+      // Bind id AND projectId: the posting guard above is scoped by (wbsId,
+      // projectId), so a forged projectId that doesn't own the wbsId would pass
+      // the guard (count 0) and then delete a sibling project's code. This stops
+      // that by matching both.
+      .where(and(eq(t.wbsCodes.id, wbsId), eq(t.wbsCodes.projectId, projectId)))
       .returning();
     if (!wbs) return fail("Cost code not found");
     await audit(tx, ctx, {
@@ -303,6 +360,18 @@ export async function createTask(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const guard = await assertProjectMutable(tx, d.projectId);
+    if (guard) return guard;
+    // Scope an optional WBS link to THIS project (RLS only bounds the tenant, so
+    // a sibling-project cost-code id from the form must not be linked).
+    if (d.wbsId) {
+      const [w] = await tx
+        .select({ id: t.wbsCodes.id })
+        .from(t.wbsCodes)
+        .where(and(eq(t.wbsCodes.id, d.wbsId), eq(t.wbsCodes.projectId, d.projectId)))
+        .limit(1);
+      if (!w) return fail("Cost code not found for this project");
+    }
     // New tasks drop to the end of the not-started column.
     const [maxRow] = await tx
       .select({ m: sql<number>`coalesce(max(${t.tasks.sortOrder}), 0)` })
@@ -433,6 +502,8 @@ export async function createMilestone(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "schedule.manage")) return fail("You don't have permission");
+    const guard = await assertProjectMutable(tx, d.projectId);
+    if (guard) return guard;
     await tx.insert(t.milestones).values({
       companyId: ctx.companyId,
       projectId: d.projectId,
@@ -591,15 +662,28 @@ export async function deleteMilestone(
 
 /* ─────────────────────────── change orders ─────────────────────────── */
 
-const changeOrderSchema = z.object({
+const changeOrderBase = z.object({
   projectId: z.string().uuid(),
   title: z.string().min(2, "Title is required"),
+  // The dialog's "Reason / description" textarea is named `description`; the
+  // rationale lives here and is surfaced on the approvals queue. (There is no
+  // separate `reason` form field, so that column was always null — dropped.)
   description: z.string().optional(),
   costImpact: zSignedMoney,
   revenueImpact: zSignedMoney,
   scheduleImpactDays: z.coerce.number().int().default(0),
-  reason: z.string().optional(),
 });
+
+// A change order with no cost, revenue or schedule impact is meaningless and
+// would queue a $0 approval — require at least one non-zero impact.
+const hasImpact = (d: z.infer<typeof changeOrderBase>) =>
+  d.costImpact !== 0 || d.revenueImpact !== 0 || d.scheduleImpactDays !== 0;
+const impactMsg = {
+  message: "A change order must have a cost, revenue, or schedule impact",
+  path: ["costImpact"],
+};
+
+const changeOrderSchema = changeOrderBase.refine(hasImpact, impactMsg);
 
 export async function createChangeOrder(
   _prev: ActionState,
@@ -610,6 +694,8 @@ export async function createChangeOrder(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "changeorders.manage")) return fail("You don't have permission");
+    const guard = await assertProjectMutable(tx, d.projectId);
+    if (guard) return guard;
     const number = await nextNumber(tx, ctx.companyId, "CO", "CO");
     const [co] = await tx
       .insert(t.changeOrders)
@@ -622,7 +708,6 @@ export async function createChangeOrder(
         costImpact: money(d.costImpact),
         revenueImpact: money(d.revenueImpact),
         scheduleImpactDays: d.scheduleImpactDays,
-        reason: d.reason ?? null,
         requestedBy: ctx.userId,
       })
       .returning();
@@ -638,9 +723,9 @@ export async function createChangeOrder(
   });
 }
 
-const changeOrderUpdateSchema = changeOrderSchema.extend({
-  changeOrderId: z.string().uuid(),
-});
+const changeOrderUpdateSchema = changeOrderBase
+  .extend({ changeOrderId: z.string().uuid() })
+  .refine(hasImpact, impactMsg);
 
 export async function updateChangeOrder(
   _prev: ActionState,
@@ -668,7 +753,6 @@ export async function updateChangeOrder(
         costImpact: money(d.costImpact),
         revenueImpact: money(d.revenueImpact),
         scheduleImpactDays: d.scheduleImpactDays,
-        reason: d.reason ?? null,
         updatedAt: new Date(),
       })
       .where(eq(t.changeOrders.id, d.changeOrderId));

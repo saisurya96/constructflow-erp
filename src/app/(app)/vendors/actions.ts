@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, ilike, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/auth/context";
 import { can } from "@/lib/rbac";
@@ -36,6 +36,25 @@ export async function createVendor(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "vendors.manage")) return fail("You don't have permission");
+    // Guard against silent duplicates — the same vendor added twice splits its
+    // spend/on-time history across rows. (Soft pre-check rather than a DB unique
+    // index so existing tenants with legacy dups don't break.)
+    if (d.code) {
+      const [dupCode] = await tx
+        .select({ id: t.vendors.id })
+        .from(t.vendors)
+        .where(ilike(t.vendors.code, d.code))
+        .limit(1);
+      if (dupCode)
+        return fail("A vendor with this code already exists", { code: "Code already in use" });
+    }
+    const [dupName] = await tx
+      .select({ id: t.vendors.id })
+      .from(t.vendors)
+      .where(ilike(t.vendors.name, d.name))
+      .limit(1);
+    if (dupName)
+      return fail("A vendor with this name already exists", { name: "Name already in use" });
     const [vendor] = await tx
       .insert(t.vendors)
       .values({
@@ -73,6 +92,23 @@ export async function updateVendor(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "vendors.manage")) return fail("You don't have permission");
+    // Reject a rename/recoding that collides with a different vendor.
+    if (d.code) {
+      const [dupCode] = await tx
+        .select({ id: t.vendors.id })
+        .from(t.vendors)
+        .where(and(ilike(t.vendors.code, d.code), ne(t.vendors.id, vendorId)))
+        .limit(1);
+      if (dupCode)
+        return fail("A vendor with this code already exists", { code: "Code already in use" });
+    }
+    const [dupName] = await tx
+      .select({ id: t.vendors.id })
+      .from(t.vendors)
+      .where(and(ilike(t.vendors.name, d.name), ne(t.vendors.id, vendorId)))
+      .limit(1);
+    if (dupName)
+      return fail("A vendor with this name already exists", { name: "Name already in use" });
     const [vendor] = await tx
       .update(t.vendors)
       .set({

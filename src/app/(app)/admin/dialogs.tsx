@@ -376,7 +376,7 @@ export function CompanySettingsForm({
         htmlFor="poApprovalThreshold"
         required
         error={errors.poApprovalThreshold}
-        hint="Orders at or above this amount route through Approvals before release."
+        hint="Orders whose net (ex-VAT) value is at or above this amount route through Approvals before release."
       >
         <Input
           id="poApprovalThreshold"

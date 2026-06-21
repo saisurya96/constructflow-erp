@@ -263,7 +263,7 @@ export function TaskDrawer({
 
           {/* comments / activity */}
           <div>
-            <p className="eyebrow mb-1.5 text-muted-foreground">Activity</p>
+            <p className="eyebrow mb-1.5 text-muted-foreground">Comments</p>
             <div className="space-y-2.5">
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-2">
@@ -280,7 +280,7 @@ export function TaskDrawer({
                 </div>
               ))}
               {comments.length === 0 && (
-                <p className="text-xs text-muted-foreground">No activity yet.</p>
+                <p className="text-xs text-muted-foreground">No comments yet.</p>
               )}
             </div>
             {canSchedule && (
