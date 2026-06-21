@@ -7,12 +7,13 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import postgres from "postgres";
+import { pgOptions } from "./pg-options";
 
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
 
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url, { ...pgOptions(url), max: 1 });
   const rls = fs.readFileSync(path.join(process.cwd(), "src/db/rls.sql"), "utf8");
   await sql.unsafe(rls);
   await sql.end();

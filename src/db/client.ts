@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema";
+import { pgOptions } from "./pg-options";
 
 /**
  * Two database connections, two trust levels:
@@ -20,7 +21,7 @@ const globalForDb = globalThis as unknown as {
 };
 
 function makeClient(url: string) {
-  return postgres(url, { max: 10, idle_timeout: 20, prepare: false });
+  return postgres(url, pgOptions(url));
 }
 
 const appPg =

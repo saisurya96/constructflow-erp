@@ -9,6 +9,7 @@
  */
 import "dotenv/config";
 import postgres from "postgres";
+import { pgOptions } from "./pg-options";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { inArray } from "drizzle-orm";
 import { hash } from "@node-rs/argon2";
@@ -31,7 +32,7 @@ const q = (n: number) => n.toFixed(3);
 async function main() {
   const url = process.env.AUTH_DATABASE_URL;
   if (!url) throw new Error("AUTH_DATABASE_URL is not set");
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url, { ...pgOptions(url), max: 1 });
   const db = drizzle(sql, { schema: s });
 
   console.log("→ clearing demo tenants…");

@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Installed agent-skills toolkit + video authoring artifacts — not app source
+    // (gitignored / regenerable; their own lint is not our concern).
+    ".agents/**",
+    ".claude/**",
+    "marketing-video/**",
   ]),
 ]);
 
