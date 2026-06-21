@@ -17,7 +17,8 @@ import {
   type ActionState,
 } from "@/lib/forms";
 import { money, quantity, num } from "@/lib/money";
-import { recomputeRequirementCoverage } from "@/lib/effects";
+import { todayISO } from "@/lib/dates";
+import { recomputeRequirementCoverage, reevaluateTaskMaterialBlock } from "@/lib/effects";
 
 /* ──────────────────────────── warehouses ───────────────────────────── */
 
@@ -274,6 +275,10 @@ export async function postGoodsReceipt(
   if (!poId) return fail("Select a purchase order");
   if (!warehouseId) return fail("Select a warehouse");
   if (!dateCheck.success) return fail("A valid received date is required");
+  // Goods can't be received in the future — a forward-dated GRN skews on-time
+  // delivery stats and any date-bounded cost reporting. (ISO date strings compare
+  // lexicographically, so a plain string compare is correct here.)
+  if (receivedDateRaw > todayISO()) return fail("The received date can't be in the future");
   if (lineIds.length === 0) return fail("No lines to receive");
 
   return db(async (tx, ctx) => {
@@ -343,6 +348,7 @@ export async function postGoodsReceipt(
     const valueByWbs = new Map<string | null, number>();
     const fulfilledReqIds = new Set<string>();
     const touchedReqIds = new Set<string>();
+    const touchedTaskIds = new Set<string>();
 
     for (const { poLine, accepted, rejected } of accepts) {
       const unitCost = num(poLine.unitPrice);
@@ -528,6 +534,9 @@ export async function postGoodsReceipt(
       const recvMap = new Map(recvRows.map((r) => [r.reqId, num(r.q)]));
 
       for (const req of reqs) {
+        // A cancelled requirement must not be resurrected by a later receipt on
+        // the same PO line — leave it cancelled (mirrors recomputeRequirementCoverage).
+        if (req.status === "cancelled") continue;
         const required = num(req.quantity);
         const received = recvMap.get(req.id) ?? 0;
         const allocated = allocMap.get(req.id) ?? 0;
@@ -544,7 +553,17 @@ export async function postGoodsReceipt(
           .set({ status, updatedAt: new Date() })
           .where(eq(t.projectRequirements.id, req.id));
         if (status === "fulfilled") fulfilledReqIds.add(req.id);
+        if (req.taskId) touchedTaskIds.add(req.taskId);
       }
+    }
+
+    // Receiving at the gate is the inverse of the block-on-raise: a requirement
+    // that is now fully covered lifts its task's "blocked by material shortage"
+    // flag (and a partial receipt that still leaves a shortage keeps it). Mirror
+    // the recompute used on every other coverage change so the task status and
+    // the project's "N tasks blocked" banner can never go stale after a GRN.
+    for (const taskId of touchedTaskIds) {
+      await reevaluateTaskMaterialBlock(tx, taskId);
     }
 
     await audit(tx, ctx, {
@@ -880,28 +899,16 @@ export async function reserveAllocation(
       })
       .returning();
 
-    // Unblock the task once its material is reserved.
-    if (d.taskId) {
-      const [task] = await tx
-        .select({ status: t.tasks.status })
-        .from(t.tasks)
-        .where(eq(t.tasks.id, d.taskId))
-        .limit(1);
-      if (task) {
-        await tx
-          .update(t.tasks)
-          .set({
-            isBlocked: false,
-            ...(task.status === "blocked" ? { status: "in_progress" as const } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(t.tasks.id, d.taskId));
-      }
-    }
-
-    // Mark a covered requirement as fulfilled.
+    // Recompute a linked requirement's coverage (which re-derives ITS task's
+    // block), then re-derive the reserved task's own block from its open
+    // requirements. Using the shared helper instead of a blanket force-unblock
+    // means a partial or unlinked reservation can't clear a block while the
+    // task's need is still short, and we never unblock a task other than this one.
     if (d.requirementId) {
       await recomputeRequirementCoverage(tx, d.requirementId);
+    }
+    if (d.taskId) {
+      await reevaluateTaskMaterialBlock(tx, d.taskId);
     }
 
     await audit(tx, ctx, {
@@ -933,7 +940,8 @@ export async function issueAllocation(
       .select()
       .from(t.inventoryAllocations)
       .where(eq(t.inventoryAllocations.id, allocationId))
-      .limit(1);
+      .limit(1)
+      .for("update"); // lock so two concurrent issues can't both pass the reserved check
     if (!alloc) return fail("Allocation not found");
     if (alloc.status !== "reserved") return fail("Only reserved stock can be issued");
 
@@ -941,7 +949,8 @@ export async function issueAllocation(
       .select()
       .from(t.inventoryItems)
       .where(eq(t.inventoryItems.id, alloc.itemId))
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (!item) return fail("Inventory item not found");
 
     const q = num(alloc.quantity);
@@ -1002,7 +1011,8 @@ export async function cancelAllocation(
       .select()
       .from(t.inventoryAllocations)
       .where(eq(t.inventoryAllocations.id, allocationId))
-      .limit(1);
+      .limit(1)
+      .for("update"); // lock so a concurrent issue/cancel can't double-release the reservation
     if (!alloc) return fail("Allocation not found");
     if (alloc.status !== "reserved") return fail("Only reserved stock can be cancelled");
 
@@ -1010,7 +1020,8 @@ export async function cancelAllocation(
       .select()
       .from(t.inventoryItems)
       .where(eq(t.inventoryItems.id, alloc.itemId))
-      .limit(1);
+      .limit(1)
+      .for("update");
 
     if (item) {
       await tx

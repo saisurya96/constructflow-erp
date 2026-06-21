@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, isNotNull, ne, sql } from "drizzle-orm";
 import type { Tx } from "@/db/client";
 import type { AuthContext } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
@@ -155,6 +155,13 @@ export async function applyChangeOrder(
     .set({
       budget: sql`${t.projects.budget} + ${co.costImpact}`,
       contractValue: sql`${t.projects.contractValue} + ${co.revenueImpact}`,
+      // A CO's schedule impact actually moves the project completion date
+      // (date + integer days, in Postgres). No-op when there's no end date set
+      // or the impact is zero. (Reversal would subtract the same; there is no
+      // un-apply path today — see deferred CO-reversal.)
+      ...(co.scheduleImpactDays
+        ? { endDate: sql`${t.projects.endDate} + ${co.scheduleImpactDays}` }
+        : {}),
       updatedAt: new Date(),
     })
     .where(eq(t.projects.id, co.projectId));
@@ -253,4 +260,70 @@ export async function recomputeRequirementCoverage(
     .update(t.projectRequirements)
     .set({ status, updatedAt: new Date() })
     .where(eq(t.projectRequirements.id, requirementId));
+
+  // Coverage just changed → keep the linked task's "blocked by material
+  // shortage" flag honest. Receiving the last of a need lifts the block; losing
+  // cover (GRN reversed, PO cancelled) puts it back. Without this the inverse of
+  // the block-on-raise transition is missing and the task/banner go stale.
+  await reevaluateTaskMaterialBlock(tx, req.taskId);
+}
+
+/**
+ * Re-derive a task's "blocked by material shortage" state from whether it still
+ * has any OPEN requirement (one not yet fulfilled or cancelled). This is the
+ * single inverse-pair for the material auto-block:
+ *   • raise an unmet need            → task blocks
+ *   • cover it (reserve / receive)   → task unblocks
+ * Call it from every path that changes a requirement's coverage or task link
+ * (raise, cancel, edit, goods-receipt + reversal, allocation, PO cancel/close).
+ *
+ * Guards:
+ *   • never blocks — or downgrades — a `done` task (would corrupt progress and
+ *     fire a false banner).
+ *   • only lifts a task OFF the "blocked" status when material is what blocked
+ *     it (its isBlocked flag is set). A task whose flag is already clear is left
+ *     alone, so a manual, non-material block is never undone here.
+ */
+export async function reevaluateTaskMaterialBlock(
+  tx: Tx,
+  taskId: string | null | undefined,
+): Promise<void> {
+  if (!taskId) return;
+  const open = await tx
+    .select({ id: t.projectRequirements.id })
+    .from(t.projectRequirements)
+    .where(
+      and(
+        eq(t.projectRequirements.taskId, taskId),
+        ne(t.projectRequirements.status, "cancelled"),
+        ne(t.projectRequirements.status, "fulfilled"),
+      ),
+    );
+  const [task] = await tx
+    .select({ status: t.tasks.status, isBlocked: t.tasks.isBlocked })
+    .from(t.tasks)
+    .where(eq(t.tasks.id, taskId))
+    .limit(1);
+  if (!task) return;
+
+  if (open.length > 0) {
+    // Still an unmet need → flag the task, but never downgrade a done task.
+    if (task.status !== "done")
+      await tx
+        .update(t.tasks)
+        .set({ isBlocked: true, status: "blocked", updatedAt: new Date() })
+        .where(eq(t.tasks.id, taskId));
+  } else if (task.isBlocked) {
+    // Need fully covered (or gone) and material was the blocker → clear the flag
+    // and lift the task off "blocked" back into progress. Tasks that aren't
+    // materially flagged (e.g. a manual block) are deliberately left untouched.
+    await tx
+      .update(t.tasks)
+      .set({
+        isBlocked: false,
+        ...(task.status === "blocked" ? { status: "in_progress" as const } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(t.tasks.id, taskId));
+  }
 }

@@ -251,16 +251,32 @@ export default async function ProjectDetailPage({
     commentCount: commentCount[tk.id] ?? 0,
   }));
 
-  const wbsCostMap = new Map<string, { committed: number; actual: number }>();
+  const wbsCostMap = new Map<string, { committed: number; actual: number; budget: number }>();
   for (const c of wbsCosts) {
     if (!c.wbsId) continue;
-    const cur = wbsCostMap.get(c.wbsId) ?? { committed: 0, actual: 0 };
+    const cur = wbsCostMap.get(c.wbsId) ?? { committed: 0, actual: 0, budget: 0 };
     if (c.type === "commitment") cur.committed += num(c.total);
     if (c.type === "actual") cur.actual += num(c.total);
+    // WBS-tagged budget adjustments (e.g. a finance posting to a cost code) must
+    // count toward that code's budget so Remaining reconciles with the Costing
+    // detail page and the project budget header (getProjectCost includes them).
+    if (c.type === "budget") cur.budget += num(c.total);
     wbsCostMap.set(c.wbsId, cur);
   }
 
-  const blockedCount = tasks.filter((tk) => tk.isBlocked).length;
+  // "Blocked by material shortage" must reflect a *live* shortage — not a stale
+  // flag, and not a task a user parked in "blocked" for a non-material reason.
+  // Count a task only when its material flag is set AND it still has an open
+  // (un-fulfilled, un-cancelled) requirement. So receiving a requirement in full
+  // clears the banner, and a manual block never inflates it.
+  const tasksWithOpenShortage = new Set(
+    requirements
+      .filter((r) => r.taskId && r.status !== "cancelled" && r.status !== "fulfilled")
+      .map((r) => r.taskId),
+  );
+  const blockedCount = tasks.filter(
+    (tk) => tk.isBlocked && tasksWithOpenShortage.has(tk.id),
+  ).length;
   const contractValue = num(project.contractValue);
   const margin = contractValue - cost.forecast;
   const billedRemaining = contractValue - billed;
@@ -328,11 +344,19 @@ export default async function ProjectDetailPage({
         <StatCard
           label="Forecast"
           value={formatMoney(cost.forecast, currency, { compact: true })}
-          tone={cost.variance > cost.budget * 0.03 ? "warning" : "good"}
+          // Only flag "over budget" once a budget is set (else a new job with
+          // any cost always reads over budget, contradicting the dashboard's
+          // budget>0 queue), and align the caption to the same 3% tolerance the
+          // tone uses so green never sits next to "over budget".
+          tone={cost.budget > 0 && cost.variance > cost.budget * 0.03 ? "warning" : "good"}
           sub={
-            cost.variance > 0
-              ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
-              : "on budget"
+            cost.budget === 0
+              ? "No budget set"
+              : cost.variance > cost.budget * 0.03
+                ? `+${formatMoney(cost.variance, currency, { compact: true })} over budget`
+                : cost.variance > 0
+                  ? "within tolerance"
+                  : "on budget"
           }
         />
         <StatCard label="Progress" value={`${Math.round(num(project.progress))}%`} tone="info" />
@@ -522,8 +546,11 @@ export default async function ProjectDetailPage({
                 </thead>
                 <tbody>
                   {wbs.map((w) => {
-                    const c = wbsCostMap.get(w.id) ?? { committed: 0, actual: 0 };
-                    const remaining = num(w.budget) - c.committed - c.actual;
+                    const c = wbsCostMap.get(w.id) ?? { committed: 0, actual: 0, budget: 0 };
+                    // Remaining uses the base WBS budget PLUS any budget-type
+                    // postings tagged to this code (the editable Budget cell stays
+                    // bound to the raw w.budget the inline editor writes back).
+                    const remaining = num(w.budget) + c.budget - c.committed - c.actual;
                     const hasCost = c.committed !== 0 || c.actual !== 0;
                     return (
                       <tr key={w.id} className="border-b last:border-0">

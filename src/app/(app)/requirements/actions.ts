@@ -1,13 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Tx } from "@/db/client";
 import { db } from "@/lib/auth/context";
+import type { Tx } from "@/db/client";
 import { can } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
-import { recomputeRequirementCoverage } from "@/lib/effects";
+import { recomputeRequirementCoverage, reevaluateTaskMaterialBlock } from "@/lib/effects";
 import * as t from "@/db/schema";
 import {
   parseForm,
@@ -32,6 +32,39 @@ const requirementSchema = z.object({
   description: z.string().optional(),
 });
 
+/** Verify the project exists in this tenant and any task/WBS link belongs to it.
+ *  Returns a fail() ActionState to short-circuit, or null to proceed. */
+async function assertReqLinks(
+  tx: Tx,
+  projectId: string,
+  taskId?: string,
+  wbsId?: string,
+): Promise<ActionState | null> {
+  const [proj] = await tx
+    .select({ id: t.projects.id })
+    .from(t.projects)
+    .where(eq(t.projects.id, projectId))
+    .limit(1);
+  if (!proj) return fail("Project not found");
+  if (taskId) {
+    const [task] = await tx
+      .select({ id: t.tasks.id })
+      .from(t.tasks)
+      .where(and(eq(t.tasks.id, taskId), eq(t.tasks.projectId, projectId)))
+      .limit(1);
+    if (!task) return fail("That task doesn't belong to this project");
+  }
+  if (wbsId) {
+    const [w] = await tx
+      .select({ id: t.wbsCodes.id })
+      .from(t.wbsCodes)
+      .where(and(eq(t.wbsCodes.id, wbsId), eq(t.wbsCodes.projectId, projectId)))
+      .limit(1);
+    if (!w) return fail("That cost code doesn't belong to this project");
+  }
+  return null;
+}
+
 export async function raiseRequirement(
   _prev: ActionState,
   formData: FormData,
@@ -41,6 +74,11 @@ export async function raiseRequirement(
   const d = parsed.data;
   return db(async (tx, ctx) => {
     if (!can(ctx.role, "requirements.raise")) return fail("You don't have permission");
+    // Bind project/task/WBS together — RLS only scopes the tenant, so a
+    // sibling-project task or cost-code id from the form must not be linked
+    // (it would fake another job's coverage or block the wrong task).
+    const guard = await assertReqLinks(tx, d.projectId, d.taskId, d.wbsId);
+    if (guard) return guard;
     await tx.insert(t.projectRequirements).values({
       companyId: ctx.companyId,
       projectId: d.projectId,
@@ -55,22 +93,10 @@ export async function raiseRequirement(
       status: "submitted",
       requestedBy: ctx.userId,
     });
-    // Raising an unmet need flags the task as blocked until covered — but never
-    // downgrade a task that is already done (or itself a milestone), which would
-    // corrupt schedule/progress and fire a false "blocked by shortage" banner.
-    if (d.taskId) {
-      const [task] = await tx
-        .select({ status: t.tasks.status })
-        .from(t.tasks)
-        .where(eq(t.tasks.id, d.taskId))
-        .limit(1);
-      if (task && task.status !== "done") {
-        await tx
-          .update(t.tasks)
-          .set({ isBlocked: true, status: "blocked", updatedAt: new Date() })
-          .where(eq(t.tasks.id, d.taskId));
-      }
-    }
+    // Raising an unmet need flags the task as blocked until covered. The shared
+    // helper derives this from the task's open requirements (so receiving later
+    // clears it via the same logic) and never downgrades a done task.
+    await reevaluateTaskMaterialBlock(tx, d.taskId);
     await audit(tx, ctx, {
       action: "requirement.raise",
       entityType: "requirement",
@@ -82,49 +108,6 @@ export async function raiseRequirement(
     revalidatePath("/requirements");
     return ok("Requirement raised");
   });
-}
-
-/**
- * Re-derive a task's "blocked by material shortage" flag from whether it still
- * has any open (uncovered) requirement. Mirrors the block-on-raise /
- * unblock-on-cancel logic so re-pointing a requirement's task link can't leave
- * a stale flag (a false banner on the old task, or no flag on the new one).
- */
-async function reevaluateTaskBlocked(tx: Tx, taskId: string): Promise<void> {
-  const open = await tx
-    .select({ id: t.projectRequirements.id })
-    .from(t.projectRequirements)
-    .where(
-      and(
-        eq(t.projectRequirements.taskId, taskId),
-        ne(t.projectRequirements.status, "cancelled"),
-        ne(t.projectRequirements.status, "fulfilled"),
-      ),
-    );
-  const [task] = await tx
-    .select({ status: t.tasks.status })
-    .from(t.tasks)
-    .where(eq(t.tasks.id, taskId))
-    .limit(1);
-  if (!task) return;
-  if (open.length > 0) {
-    // Still has an unmet need → block, but never downgrade a done task.
-    if (task.status !== "done")
-      await tx
-        .update(t.tasks)
-        .set({ isBlocked: true, status: "blocked", updatedAt: new Date() })
-        .where(eq(t.tasks.id, taskId));
-  } else {
-    // No open need left → clear the flag and lift it off "blocked".
-    await tx
-      .update(t.tasks)
-      .set({
-        isBlocked: false,
-        ...(task.status === "blocked" ? { status: "in_progress" as const } : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(t.tasks.id, taskId));
-  }
 }
 
 const requirementUpdateSchema = z.object({
@@ -153,6 +136,7 @@ export async function updateRequirement(
       .select({
         status: t.projectRequirements.status,
         taskId: t.projectRequirements.taskId,
+        projectId: t.projectRequirements.projectId,
       })
       .from(t.projectRequirements)
       .where(eq(t.projectRequirements.id, d.requirementId))
@@ -160,6 +144,9 @@ export async function updateRequirement(
     if (!existing) return fail("Requirement not found");
     if (existing.status === "cancelled" || existing.status === "fulfilled")
       return fail("A cancelled or fulfilled requirement can't be edited");
+    // Scope the (possibly changed) task/WBS link to the requirement's OWN project.
+    const guard = await assertReqLinks(tx, existing.projectId, d.taskId, d.wbsId);
+    if (guard) return guard;
     const prevTaskId = existing.taskId;
     const newTaskId = d.taskId ?? null;
     await tx
@@ -181,8 +168,8 @@ export async function updateRequirement(
     await recomputeRequirementCoverage(tx, d.requirementId);
     // Keep task "blocked by shortage" flags honest if the task link changed.
     if (prevTaskId !== newTaskId) {
-      if (prevTaskId) await reevaluateTaskBlocked(tx, prevTaskId);
-      if (newTaskId) await reevaluateTaskBlocked(tx, newTaskId);
+      await reevaluateTaskMaterialBlock(tx, prevTaskId);
+      await reevaluateTaskMaterialBlock(tx, newTaskId);
     }
     await audit(tx, ctx, {
       action: "requirement.update",
@@ -225,37 +212,10 @@ export async function cancelRequirement(
       .update(t.projectRequirements)
       .set({ status: "cancelled", updatedAt: new Date() })
       .where(eq(t.projectRequirements.id, requirementId));
-    // Clear the blocked flag on the linked task if it has no other open need.
-    if (req.taskId) {
-      const others = await tx
-        .select({ id: t.projectRequirements.id })
-        .from(t.projectRequirements)
-        .where(
-          and(
-            eq(t.projectRequirements.taskId, req.taskId),
-            ne(t.projectRequirements.id, requirementId),
-            ne(t.projectRequirements.status, "cancelled"),
-            ne(t.projectRequirements.status, "fulfilled"),
-          ),
-        );
-      if (others.length === 0) {
-        // Also move the task off "blocked" — clearing isBlocked alone would leave
-        // it in the contradictory blocked-status / not-blocked-flag state.
-        const [task] = await tx
-          .select({ status: t.tasks.status })
-          .from(t.tasks)
-          .where(eq(t.tasks.id, req.taskId))
-          .limit(1);
-        await tx
-          .update(t.tasks)
-          .set({
-            isBlocked: false,
-            ...(task?.status === "blocked" ? { status: "in_progress" as const } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(t.tasks.id, req.taskId));
-      }
-    }
+    // The cancelled need no longer counts as open, so re-derive the task's
+    // material-block flag — this clears it (and lifts the task off "blocked")
+    // when it was the task's last open requirement.
+    await reevaluateTaskMaterialBlock(tx, req.taskId);
     await audit(tx, ctx, {
       action: "requirement.cancel",
       entityType: "requirement",
