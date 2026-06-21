@@ -46,7 +46,11 @@ begin
   -- as defence in depth — including TRUNCATE, which bypasses RLS and would
   -- otherwise let the whole log be wiped. An audit trail you can edit or erase
   -- isn't an audit trail.
+  -- Drop ALL of this table's policies (the old all-command one AND our own named
+  -- ones) before recreating, so re-applying this file stays idempotent.
   execute 'drop policy if exists tenant_isolation on public.audit_events';
+  execute 'drop policy if exists audit_select on public.audit_events';
+  execute 'drop policy if exists audit_insert on public.audit_events';
   execute 'create policy audit_select on public.audit_events for select using (company_id = public.current_company_id())';
   execute 'create policy audit_insert on public.audit_events for insert with check (company_id = public.current_company_id())';
   execute 'revoke update, delete, truncate on public.audit_events from constructflow';
