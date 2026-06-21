@@ -42,12 +42,14 @@ begin
 
   -- audit_events is append-only. Replace the generic all-command policy with
   -- tenant-scoped SELECT + INSERT only; with FORCE RLS and no UPDATE/DELETE
-  -- policy those commands match zero rows. Also revoke the table grants as
-  -- defence in depth. An audit trail you can edit or erase isn't an audit trail.
+  -- policy those commands match zero rows. Also revoke the mutating table grants
+  -- as defence in depth — including TRUNCATE, which bypasses RLS and would
+  -- otherwise let the whole log be wiped. An audit trail you can edit or erase
+  -- isn't an audit trail.
   execute 'drop policy if exists tenant_isolation on public.audit_events';
   execute 'create policy audit_select on public.audit_events for select using (company_id = public.current_company_id())';
   execute 'create policy audit_insert on public.audit_events for insert with check (company_id = public.current_company_id())';
-  execute 'revoke update, delete on public.audit_events from constructflow';
+  execute 'revoke update, delete, truncate on public.audit_events from constructflow';
 
   -- companies is keyed by `id` (not `company_id`)
   execute 'alter table public.companies enable row level security';
