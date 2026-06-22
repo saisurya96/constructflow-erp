@@ -403,12 +403,8 @@ export function LandingPage() {
               <div className="lg:col-span-3">
                 <span className="eyebrow text-brand-strong">The material loop</span>
                 <h2 className="mt-4 font-display text-[1.9rem] font-semibold leading-tight tracking-tight">
-                  Watch the thread run end to end.
+                  Watch the demo
                 </h2>
-                <p className="mt-4 text-[1rem] leading-relaxed text-muted-foreground">
-                  £201.6K of Ready-mix C40 — from a blocked task to received at the gate — in thirty seconds.
-                  Real screens, one job, no re-keying.
-                </p>
                 <ul className="mt-7 space-y-2.5 border-t border-border pt-5 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
                   {[
                     ["00:04", "Plan & raise"],
