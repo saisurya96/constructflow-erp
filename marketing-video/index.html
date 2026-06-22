@@ -59,32 +59,6 @@
         background-size: 48px 48px;
         z-index: 0;
       }
-      .frame {
-        position: absolute; inset: 40px; border: 2px solid var(--line-strong);
-        z-index: 90; pointer-events: none;
-      }
-      .reg { position: absolute; width: 26px; height: 26px; z-index: 91; }
-      .reg::before, .reg::after { content: ""; position: absolute; background: var(--muted); }
-      .reg::before { left: 0; top: 12px; width: 26px; height: 2px; }
-      .reg::after { left: 12px; top: 0; width: 2px; height: 26px; }
-      .reg.tl { left: 54px; top: 54px; } .reg.tr { right: 54px; top: 54px; }
-      .reg.bl { left: 54px; bottom: 54px; } .reg.br { right: 54px; bottom: 54px; }
-
-      .sheet-top {
-        position: absolute; left: 86px; right: 86px; top: 62px; z-index: 92;
-        display: flex; justify-content: space-between; align-items: center;
-        font-size: 19px; color: var(--muted);
-      }
-      .live { display: inline-flex; align-items: center; gap: 12px; }
-      .live-dot { width: 13px; height: 13px; background: var(--orange); border-radius: 2px; }
-
-      .titleblock {
-        position: absolute; left: 86px; right: 86px; bottom: 60px; z-index: 92;
-        display: flex; justify-content: space-between; align-items: center;
-        border-top: 2px solid var(--line-strong); padding-top: 16px;
-        font-size: 18px; color: var(--muted);
-      }
-      .titleblock .seg { display: flex; gap: 40px; }
 
       /* ---------- scene container ---------- */
       .scene {
@@ -515,17 +489,6 @@
         </div>
       </div>
 
-      <!-- persistent sheet chrome (always on top) -->
-      <div class="frame"></div>
-      <div class="reg tl"></div><div class="reg tr"></div><div class="reg bl"></div><div class="reg br"></div>
-      <div class="sheet-top mono">
-        <span>ConstructFlow</span>
-        <span class="live"><span class="live-dot" id="livedot"></span>Product tour · 00:30</span>
-      </div>
-      <div class="titleblock mono">
-        <span class="seg"><span>Sheet A-100</span><span>Scale N.T.S.</span><span>Rev A</span></span>
-        <span>The woven workflow</span>
-      </div>
     </div>
 
     <script>
@@ -540,9 +503,6 @@
         tl.to(o, { v: to, duration: dur, ease: "power1.out",
           onUpdate: () => { node.textContent = Math.round(o.v).toLocaleString("en-GB") + suffix; } }, t);
       }
-
-      /* ---------- ambient: persistent live dot ---------- */
-      tl.to("#livedot", { opacity: 0.25, duration: 0.8, ease: "sine.inOut", repeat: 37, yoyo: true }, 0);
 
       /* ================= S1 — TITLE (0 → 4.7) ================= */
       tl.from("#s1", { opacity: 0, duration: 0.5, ease: "sine.out" }, 0);

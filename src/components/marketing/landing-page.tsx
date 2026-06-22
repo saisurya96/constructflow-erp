@@ -28,18 +28,6 @@ function Brand({ className = "", nameClass = "" }: { className?: string; nameCla
   );
 }
 
-function RegMarks({ tone = "ink" }: { tone?: "ink" | "paper" }) {
-  const c = tone === "paper" ? "border-background/25" : "border-foreground/20";
-  return (
-    <>
-      <span aria-hidden className={`pointer-events-none absolute left-5 top-5 size-2.5 border-l border-t ${c}`} />
-      <span aria-hidden className={`pointer-events-none absolute right-5 top-5 size-2.5 border-r border-t ${c}`} />
-      <span aria-hidden className={`pointer-events-none absolute bottom-5 left-5 size-2.5 border-b border-l ${c}`} />
-      <span aria-hidden className={`pointer-events-none absolute bottom-5 right-5 size-2.5 border-b border-r ${c}`} />
-    </>
-  );
-}
-
 function DimensionLine({ label, className = "" }: { label: string; className?: string }) {
   return (
     <div className={`flex items-center gap-4 text-muted-foreground ${className}`} aria-hidden>
@@ -53,13 +41,11 @@ function DimensionLine({ label, className = "" }: { label: string; className?: s
 }
 
 function SheetHeader({
-  sheet,
   eyebrow,
   title,
   body,
   dim,
 }: {
-  sheet: string;
   eyebrow: string;
   title: React.ReactNode;
   body: string;
@@ -68,9 +54,6 @@ function SheetHeader({
   return (
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-[3px] border border-border px-2 py-1 font-mono text-[11px] font-medium tracking-[0.12em] text-foreground tabular">
-          {sheet}
-        </span>
         <span className="eyebrow text-brand-strong">{eyebrow}</span>
       </div>
       <h2 className="mt-5 font-display text-[2rem] font-semibold leading-[1.05] tracking-tight sm:text-[2.6rem]">
@@ -319,18 +302,18 @@ function GateCostStack() {
 /* ------------------------- data tables --------------------------- */
 
 const SYSTEMS: { tag: string; system: string; does: string; feeds: string; keystone?: boolean }[] = [
-  { tag: "S-01", system: "Projects & schedule", does: "Board, table and Gantt over one WBS budget", feeds: "→ Cost" },
-  { tag: "S-02", system: "The material loop", does: "A need on a task → procurement → gate → stock", feeds: "→ Everything", keystone: true },
-  { tag: "S-03", system: "Procurement & RFQ", does: "Invite vendors, compare quotes, release POs", feeds: "→ Cost" },
-  { tag: "S-04", system: "Job costing", does: "Budget vs committed vs actual vs forecast", feeds: "→ Billing" },
-  { tag: "S-05", system: "Billing & payments", does: "Progress invoices, payments, approvals inbox", feeds: "→ Books" },
-  { tag: "S-06", system: "Full audit trail", does: "Every action logged, exportable, attributable", feeds: "→ Compliance" },
+  { tag: "01", system: "Projects & schedule", does: "Board, table and timeline over one budget", feeds: "→ Cost" },
+  { tag: "02", system: "The material loop", does: "A need on a task → procurement → gate → stock", feeds: "→ Everything", keystone: true },
+  { tag: "03", system: "Procurement & quotes", does: "Invite vendors, compare quotes, release purchase orders", feeds: "→ Cost" },
+  { tag: "04", system: "Job costing", does: "Budget vs committed vs actual vs forecast", feeds: "→ Billing" },
+  { tag: "05", system: "Billing & payments", does: "Progress invoices, payments, approvals inbox", feeds: "→ Books" },
+  { tag: "06", system: "Full audit trail", does: "Every action logged, exportable, attributable", feeds: "→ Compliance" },
 ];
 
 const ROLES: { n: string; role: string; gets: string; truth: string }[] = [
   { n: "01", role: "Owner", gets: "Every job’s margin, plus an approvals inbox", truth: "margin £2.5M" },
-  { n: "02", role: "Project manager", gets: "The board, the blockers, the WBS budget line", truth: "pour unblocked" },
-  { n: "03", role: "Procurement", gets: "Requirements queued, RFQs compared, POs released", truth: "PO-0002 released" },
+  { n: "02", role: "Project manager", gets: "The board, the blockers, the budget line", truth: "pour unblocked" },
+  { n: "03", role: "Procurement", gets: "Requirements queued, quotes compared, purchase orders released", truth: "PO-0002 released" },
   { n: "04", role: "Stores", gets: "Receive at the gate; stock and allocations stay honest", truth: "C40 in stock" },
   { n: "05", role: "Finance", gets: "Invoices, payments and cost — reconciled, not re-keyed", truth: "£201.6K committed" },
 ];
@@ -350,9 +333,6 @@ export function LandingPage() {
     <div className="relative min-h-screen bg-background text-foreground">
       <LandingChrome />
 
-      {/* desktop drawing-sheet frame */}
-      <div aria-hidden className="pointer-events-none fixed inset-3 z-[55] hidden border border-foreground/10 lg:block" />
-
       {/* ─────────────────────────── nav ─────────────────────────── */}
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 lg:px-8">
@@ -360,14 +340,14 @@ export function LandingPage() {
             <Brand />
             <span className="hidden items-center gap-1.5 border-l border-border pl-4 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground md:flex">
               <span className="size-1.5 rounded-[1px] bg-brand" />
-              CF-01 · Construction ERP
+              Construction ERP
             </span>
           </div>
           <nav className="hidden items-center gap-6 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground lg:flex">
-            <a href="#film" className="transition-colors hover:text-foreground">A-102 · Film</a>
-            <a href="#source" className="transition-colors hover:text-foreground">A-104 · Source</a>
-            <a href="#systems" className="transition-colors hover:text-foreground">A-107 · Systems</a>
-            <a href="#roles" className="transition-colors hover:text-foreground">A-108 · Roles</a>
+            <a href="#film" className="transition-colors hover:text-foreground">Demo</a>
+            <a href="#source" className="transition-colors hover:text-foreground">Sourcing</a>
+            <a href="#systems" className="transition-colors hover:text-foreground">Systems</a>
+            <a href="#roles" className="transition-colors hover:text-foreground">Roles</a>
           </nav>
           <div className="flex items-center gap-2">
             <Link href="/login" className="hidden h-9 items-center rounded-lg px-3 text-sm font-medium transition-colors hover:bg-muted sm:inline-flex">
@@ -384,7 +364,6 @@ export function LandingPage() {
         {/* ───────────────────────── hero (cover) ───────────────────────── */}
         <section id="cover" className="relative overflow-hidden bg-foreground text-background">
           <div aria-hidden className="blueprint-grid pointer-events-none absolute inset-0 text-background/[0.06]" />
-          <RegMarks tone="paper" />
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 py-20 lg:grid-cols-12 lg:gap-8 lg:px-8 lg:py-28">
             {/* left: the pitch */}
             <div className="lg:col-span-5">
@@ -396,8 +375,8 @@ export function LandingPage() {
                 Pull one <span className="text-brand">thread.</span> The whole job moves.
               </h1>
               <p className="mt-6 max-w-md text-[1.0625rem] leading-relaxed text-background/65">
-                A shortage on a task becomes an RFQ, a PO, a delivery and a cost line — without anyone
-                re-typing a thing. The first ERP a construction team actually wants to use.
+                A shortage on a task becomes a quote, a purchase order, a delivery and a cost line — without
+                anyone re-typing a thing. The first ERP a construction team actually wants to use.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link href="/signup" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-brand px-6 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand/90">
@@ -406,13 +385,6 @@ export function LandingPage() {
                 <a href="#film" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-background/20 px-6 text-sm font-medium text-background transition-colors hover:bg-background/10">
                   Watch the 30s loop
                 </a>
-              </div>
-              <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.14em] text-background/60">
-                <span>£14.5M contract</span>
-                <span className="text-background/20">·</span>
-                <span>5 roles</span>
-                <span className="text-background/20">·</span>
-                <span>0 re-keys</span>
               </div>
             </div>
             {/* right: the live product surface, bleeding right */}
@@ -429,7 +401,7 @@ export function LandingPage() {
             <div className="grid gap-10 lg:grid-cols-12 lg:gap-8">
               {/* left margin: chapter index */}
               <div className="lg:col-span-3">
-                <span className="eyebrow text-brand-strong">Detail 1 · the material loop</span>
+                <span className="eyebrow text-brand-strong">The material loop</span>
                 <h2 className="mt-4 font-display text-[1.9rem] font-semibold leading-tight tracking-tight">
                   Watch the thread run end to end.
                 </h2>
@@ -455,25 +427,12 @@ export function LandingPage() {
               {/* the recessed bezel */}
               <div className="lg:col-span-9">
                 <div className="relative rounded-xl border border-border bg-card p-3 sm:p-4">
-                  <RegMarks tone="ink" />
-                  <div className="mb-3 flex items-center justify-between px-1">
+                  <div className="mb-3 flex items-center px-1">
                     <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                       <span className="size-2 rounded-[1px] bg-critical" /> REC
                     </span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground tabular">
-                      00:00 / 00:30 · no audio
-                    </span>
                   </div>
                   <DemoVideo src={DEMO_SRC} poster={DEMO_POSTER} />
-                  {/* 5-beat dimension scrubber */}
-                  <div className="mt-3 flex items-stretch gap-1 px-1">
-                    {["Plan", "Raise", "Source", "Receive", "Cost"].map((b, i) => (
-                      <div key={b} className="flex-1">
-                        <div className={`h-0.5 ${i === 0 ? "bg-brand" : "bg-border"}`} />
-                        <div className="mt-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">{b}</div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             </div>
@@ -484,8 +443,7 @@ export function LandingPage() {
         <section id="source" className="relative border-b border-border bg-background">
           <div className="mx-auto max-w-6xl px-5 py-20 lg:px-8 lg:py-28">
             <SheetHeader
-              sheet="A-104"
-              eyebrow="02 · Source"
+              eyebrow="Sourcing"
               title={<>Three quotes, one honest comparison.</>}
               body="The shortage isn’t a memo — it’s a requirement on the task that pours the slab. Three vendors, one screen. The cheapest line is already lit."
               dim="3 vendors · 1 screen"
@@ -498,7 +456,7 @@ export function LandingPage() {
                 {[
                   ["Cheapest, flagged automatically", "The lowest compliant line lights orange — no spreadsheet math."],
                   ["Lead time & compliance on one row", "Price isn’t the only axis. See the trade-off before you commit."],
-                  ["Award → PO in one click", "The winner becomes a purchase order, routed for approval instantly."],
+                  ["Award → purchase order in one click", "The winner becomes a purchase order, routed for approval instantly."],
                 ].map(([h, b]) => (
                   <li key={h} className="border-l-2 border-border pl-5">
                     <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.1em] text-foreground">
@@ -519,13 +477,12 @@ export function LandingPage() {
               {/* left: the claim */}
               <div className="lg:col-span-5">
                 <SheetHeader
-                  sheet="A-105"
-                  eyebrow="03 · Gate → 04 · Cost"
+                  eyebrow="Delivery → cost"
                   title={<>Book the delivery once. Stock, cost and the schedule all move.</>}
                   body="The blocked pour flips to In Progress the moment the concrete is received. Nobody re-typed a thing. Forecast £12M — on budget."
                 />
                 <ul className="mt-8 space-y-4 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-                  {["GRN at the gate raises stock", "The blocked task unblocks itself", "Actual cost posts against budget"].map((l) => (
+                  {["Receiving at the gate raises stock", "The blocked task unblocks itself", "Actual cost posts against budget"].map((l) => (
                     <li key={l} className="flex items-center gap-2.5">
                       <span className="size-1.5 rounded-[1px] bg-brand" /> {l}
                     </li>
@@ -543,10 +500,9 @@ export function LandingPage() {
         {/* ─────────────── seam-proof: enter once (ink) ─────────────── */}
         <section id="seam" className="relative overflow-hidden bg-foreground text-background">
           <div aria-hidden className="blueprint-grid pointer-events-none absolute inset-0 text-background/[0.05]" />
-          <RegMarks tone="paper" />
           <div className="relative mx-auto grid max-w-6xl items-center gap-14 px-5 py-20 lg:grid-cols-2 lg:px-8 lg:py-28">
             <div>
-              <span className="eyebrow text-brand">Gen. note · one entry, five truths</span>
+              <span className="eyebrow text-brand">One entry, five truths</span>
               <h2 className="mt-5 font-display text-[2.4rem] font-semibold leading-[1.05] tracking-tight sm:text-[3rem]">
                 <span className="text-brand">Enter it once</span> on Monday.
                 <br />
@@ -577,7 +533,7 @@ export function LandingPage() {
                 </div>
               ))}
               <div className="flex items-center rounded-lg border border-dashed border-background/15 p-4 text-[13px] leading-relaxed text-background/65">
-                One entry → five seats, already reconciled.
+                One entry → five roles, already reconciled.
               </div>
             </div>
           </div>
@@ -587,8 +543,7 @@ export function LandingPage() {
         <section id="systems" className="relative border-b border-border bg-background">
           <div className="mx-auto max-w-6xl px-5 py-20 lg:px-8 lg:py-28">
             <SheetHeader
-              sheet="A-107"
-              eyebrow="Schedule of systems · 6 no."
+              eyebrow="Six core systems"
               title={<>Everything the job needs, on one ledger.</>}
               body="Six systems, one source of truth. The material loop is the spine; everything feeds it."
               dim="6 systems · 1 ledger"
@@ -597,7 +552,7 @@ export function LandingPage() {
               <table className="w-full min-w-[680px] border-collapse">
                 <thead>
                   <tr className="border-y border-border font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                    <th className="py-3 pr-4 text-left font-medium">Tag</th>
+                    <th className="py-3 pr-4 text-left font-medium">#</th>
                     <th className="py-3 pr-4 text-left font-medium">System</th>
                     <th className="py-3 pr-4 text-left font-medium">What it does</th>
                     <th className="py-3 pr-4 text-left font-medium">Feeds</th>
@@ -640,9 +595,8 @@ export function LandingPage() {
         <section id="roles" className="relative border-b border-border bg-background">
           <div className="mx-auto max-w-6xl px-5 py-20 lg:px-8 lg:py-28">
             <SheetHeader
-              sheet="A-108"
-              eyebrow="Drawing index · five seats"
-              title={<>Every seat. One source of truth.</>}
+              eyebrow="Built for your team"
+              title={<>Every role. One source of truth.</>}
               body="Role-based access — each person sees their own work and the very same numbers."
             />
             <ul className="mt-12 border-t border-border">
@@ -673,11 +627,11 @@ export function LandingPage() {
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 py-24 lg:grid-cols-2 lg:px-8 lg:py-32">
             <div className="order-2 lg:order-1">
               <div className="inline-block rotate-[-2deg] rounded-md border-2 border-brand/70 px-6 py-3 font-mono text-sm uppercase tracking-[0.18em] text-brand-strong">
-                Issued for construction
+                Ready when you are
               </div>
             </div>
             <div className="order-1 lg:order-2">
-              <span className="eyebrow text-brand-strong">A-109 · power on</span>
+              <span className="eyebrow text-brand-strong">Get started</span>
               <h2 className="mt-4 font-display text-[2.2rem] font-semibold leading-[1.05] tracking-tight sm:text-[2.75rem]">
                 Switch your next job onto the panel.
               </h2>
@@ -703,10 +657,10 @@ export function LandingPage() {
       <footer className="border-t border-border bg-background">
         <div className="mx-auto max-w-6xl px-5 lg:px-8">
           <div className="grid grid-cols-2 border-x border-border md:grid-cols-4">
-            <FooterCell k="Project" v="ConstructFlow" />
-            <FooterCell k="Sheet" v="A-109 of A-109" />
-            <FooterCell k="Scale" v="N.T.S." />
-            <FooterCell k="Revision" v="A · 2026" />
+            <FooterCell k="Product" v="ConstructFlow" />
+            <FooterCell k="Category" v="Construction ERP" />
+            <FooterCell k="Status" v="Live" />
+            <FooterCell k="Year" v="2026" />
           </div>
           <div className="flex flex-col items-center justify-between gap-4 border-x border-b border-border px-5 py-6 sm:flex-row">
             <Brand />
