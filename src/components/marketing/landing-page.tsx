@@ -367,11 +367,7 @@ export function LandingPage() {
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 py-20 lg:grid-cols-12 lg:gap-8 lg:px-8 lg:py-28">
             {/* left: the pitch */}
             <div className="lg:col-span-5">
-              <span className="eyebrow inline-flex items-center gap-2 text-background/60">
-                <span className="size-1.5 rounded-[1px] bg-brand" />
-                Now live — Marina Heights Tower · £14.5M
-              </span>
-              <h1 className="mt-6 font-display text-[2.75rem] font-semibold leading-[1.02] tracking-tight sm:text-[3.5rem]">
+              <h1 className="font-display text-[2.75rem] font-semibold leading-[1.02] tracking-tight sm:text-[3.5rem]">
                 Pull one <span className="text-brand">thread.</span> The whole job moves.
               </h1>
               <p className="mt-6 max-w-md text-[1.0625rem] leading-relaxed text-background/65">
@@ -382,9 +378,6 @@ export function LandingPage() {
                 <Link href="/signup" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-brand px-6 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand/90">
                   Start free <ArrowRight className="size-4" />
                 </Link>
-                <a href="#film" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-background/20 px-6 text-sm font-medium text-background transition-colors hover:bg-background/10">
-                  Watch the 30s loop
-                </a>
               </div>
             </div>
             {/* right: the live product surface, bleeding right */}
